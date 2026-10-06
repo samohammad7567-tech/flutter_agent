@@ -1,0 +1,3 @@
+[console_scripts]
+flutter-agent = flutter_agent.cli:main
+flutter-agent-server = flutter_agent.server:main

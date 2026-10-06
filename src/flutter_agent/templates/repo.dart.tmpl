@@ -1,0 +1,11 @@
+import '../data_source/{{feature}}_data_source.dart';
+import '../models/{{feature}}_model.dart';
+
+/// Thin by design: the repo delegates and holds no logic of its own.
+class {{Feature}}Repo {
+  const {{Feature}}Repo({this.dataSource = const {{Feature}}DataSource()});
+
+  final {{Feature}}DataSource dataSource;
+
+  Future<List<{{Feature}}Model>> fetchItems() => dataSource.fetchItems();
+}

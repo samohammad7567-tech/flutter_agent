@@ -1,0 +1,56 @@
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../data/data_source/{{feature}}_data_source.dart';
+import '../../data/models/{{feature}}_model.dart';
+import '../../data/repos/{{feature}}_repo.dart';
+
+part '{{feature}}_state.dart';
+
+/// Owns every decision the {{feature_words}} screen makes.
+///
+/// No BuildContext and no navigation live here: the screen reacts to state.
+class {{Feature}}Cubit extends Cubit<{{Feature}}State> {
+  {{Feature}}Cubit({this.repo = const {{Feature}}Repo()})
+    : super(const {{Feature}}State()) {
+    load();
+  }
+
+  final {{Feature}}Repo repo;
+
+  Future<void> load() async {
+    emit(state.copyWith(status: {{Feature}}Status.loading));
+    await _fetch();
+  }
+
+  Future<void> refresh() => _fetch();
+
+  Future<void> _fetch() async {
+    try {
+      final List<{{Feature}}Model> items = await repo.fetchItems();
+      if (isClosed) return;
+
+      emit(
+        state.copyWith(
+          status: items.isEmpty
+              ? {{Feature}}Status.empty
+              : {{Feature}}Status.success,
+          items: items,
+          clearError: true,
+        ),
+      );
+    } on {{Feature}}Exception catch (error) {
+      if (isClosed) return;
+      emit(
+        state.copyWith(status: {{Feature}}Status.failure, errorKey: error.key),
+      );
+    } catch (error) {
+      if (isClosed) return;
+      emit(
+        state.copyWith(
+          status: {{Feature}}Status.failure,
+          errorKey: {{Feature}}DataSource.mapError(error),
+        ),
+      );
+    }
+  }
+}

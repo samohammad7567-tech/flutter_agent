@@ -1,0 +1,60 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '{{lang_keys_import}}';
+import '../../data/models/{{feature}}_model.dart';
+import '../cubit/{{feature}}_cubit.dart';
+import '../widgets/{{feature}}_tile.dart';
+
+/// Renders {{Feature}}State. Every branch comes from the cubit, never from here.
+class {{Feature}}Body extends StatelessWidget {
+  const {{Feature}}Body({super.key, this.onItemTap});
+
+  final ValueChanged<{{Feature}}Model>? onItemTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<{{Feature}}Cubit, {{Feature}}State>(
+      builder: (BuildContext context, {{Feature}}State state) {
+        if (state.isFirstLoad) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state.hasFailed) {
+          return _Message(text: (state.errorKey ?? LangKeys.{{featureCamel}}Error).tr());
+        }
+        if (state.isEmpty) {
+          return _Message(text: LangKeys.{{featureCamel}}Empty.tr());
+        }
+
+        return RefreshIndicator(
+          onRefresh: context.read<{{Feature}}Cubit>().refresh,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: state.visibleItems.length,
+            itemBuilder: (BuildContext context, int index) => {{Feature}}Tile(
+              item: state.visibleItems[index],
+              onTap: onItemTap,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Message extends StatelessWidget {
+  const _Message({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(text, textAlign: TextAlign.center),
+      ),
+    );
+  }
+}

@@ -1,0 +1,604 @@
+<!doctype html>
+<html dir="ltr" lang="en">
+<head>
+<meta charset="utf-8">
+<title>flutter-agent — User Manual</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+
+<!-- ============================================================ COVER -->
+<div class="cover">
+  <div class="eyebrow">User Manual &middot; v0.1</div>
+  <h1>flutter-agent</h1>
+  <p class="tagline">A local Flutter clean-architecture agent. Semantic search over your own Dart corpus, static enforcement of your layer rules, feature scaffolding in your house style, and a lesson store that learns from your Claude sessions.</p>
+  <div class="facts">
+    <p><b>Runs entirely on this machine.</b> No code leaves your computer. Embeddings are computed on your GPU.</p>
+    <p><b>Indexed corpus:</b> 896 files &middot; 1,664 chunks across corereusablepackage, bilhikma, hikmaapp, skygate, attendence.</p>
+    <p><b>Two surfaces:</b> MCP tools inside Claude Code, and the <code>flutter-agent</code> command line.</p>
+  </div>
+</div>
+
+<!-- ============================================================ TOC -->
+<div class="section">
+<h1>Contents</h1>
+<div class="toc">
+<ol>
+  <li><b>What it is and why it exists</b> <span>— the problem it solves</span></li>
+  <li><b>How it works</b> <span>— the pipeline, and what is stored</span></li>
+  <li><b>Installation</b> <span>— from scratch on a new machine</span></li>
+  <li><b>Registering your projects</b> <span>— sources and the first index</span></li>
+  <li><b>Using it inside Claude Code</b> <span>— the MCP tools</span></li>
+  <li><b>Using the command line</b> <span>— every command, with real output</span></li>
+  <li><b>Scaffolding a feature</b> <span>— a complete walkthrough</span></li>
+  <li><b>The architecture rules</b> <span>— R1 to R12, with examples</span></li>
+  <li><b>The knowledge base</b> <span>— rules, patterns, lessons</span></li>
+  <li><b>The learning loop</b> <span>— how it gets better over time</span></li>
+  <li><b>Troubleshooting</b></li>
+  <li><b>Reference</b> <span>— paths, environment variables, layout</span></li>
+</ol>
+</div>
+</div>
+
+<!-- ============================================================ 1 -->
+<div class="section">
+<h1>1. What it is and why it exists</h1>
+
+<p class="lead">Your Flutter conventions live in two places that cannot talk to each other: a prose document, and roughly 900 Dart files that nothing can query.</p>
+
+<p>Every new Claude Code session re-derives your architecture from <code>CLAUDE.md</code> — from a description of the rules rather than from the code that already follows them. And every correction you make is lost when that session ends.</p>
+
+<p>flutter-agent closes both gaps:</p>
+
+<ul>
+  <li><b>It indexes your real code.</b> Ask "how do we do pagination" and it answers with <i>your</i> <code>PaginatedResult</code>, not a generic Flutter tutorial.</li>
+  <li><b>It enforces your rules statically.</b> Twelve checks that read the source and decide — no model involved, so they are fast, free and deterministic.</li>
+  <li><b>It scaffolds in your style.</b> A generated feature is modelled on <code>bilhikma/features/archive</code>, the cleanest instance of the layout in your corpus.</li>
+  <li><b>It remembers corrections.</b> When you correct Claude, that correction is recorded, indexed, and recalled in later sessions.</li>
+</ul>
+
+<h2>What it is not</h2>
+<p>It is not a code generator that replaces thinking, and it does not decide whether code compiles — <code>flutter analyze</code> remains the only authority on that, and the agent shells out to it rather than approximating it.</p>
+
+<h2>The architecture it encodes</h2>
+<p>Every feature has exactly two halves, and there is no <code>domain/</code>, <code>entities/</code>, <code>use_cases/</code> or <code>repo_interface/</code>:</p>
+
+<pre><code>lib/features/&lt;feature&gt;/
+  data/
+    data_source/   <span class="c"># the ONLY place that talks to a backend or storage</span>
+    models/        <span class="c"># fromJson / toJson</span>
+    repos/         <span class="c"># delegation, nothing else</span>
+  presentation/
+    cubit/         <span class="c"># every decision the screen makes</span>
+    refactor/      <span class="c"># body sections pulled out of a screen</span>
+    screens/       <span class="c"># 30-70 lines: create the cubit, render the body</span>
+    widgets/       <span class="c"># small dumb components</span></code></pre>
+</div>
+
+<!-- ============================================================ 2 -->
+<div class="section">
+<h1>2. How it works</h1>
+
+<pre><code>your Dart projects ──┐
+knowledge/           ├─► parser ─► chunker ─► GPU embeddings ─► FAISS ─┬─► MCP ─► Claude Code
+ (rules, patterns,   │                                                 └─► CLI
+  lessons)  ─────────┘</code></pre>
+
+<h2>Step by step</h2>
+<ol>
+  <li><b>Parse.</b> A hand-written Dart scanner finds declarations, members, imports and string literals. It is not a Dart compiler and does not try to be — its job is to find boundaries and metadata.</li>
+  <li><b>Chunk.</b> One chunk per top-level declaration. A 600-line Cubit is split at member boundaries, and every part repeats the class header so a chunk from the middle still knows what it belongs to.</li>
+  <li><b>Tag.</b> Each chunk records its project, feature, layer, symbol and line range. That is what makes <code>--layer data_source</code> possible.</li>
+  <li><b>Embed.</b> Computed locally on your RTX 4050 with <code>all-MiniLM-L6-v2</code> (~90 MB). The full corpus takes about 24 seconds.</li>
+  <li><b>Store.</b> FAISS for the vectors, SQLite for the metadata, keyed so the two can never drift apart.</li>
+  <li><b>Serve.</b> Through MCP to Claude Code, and through the CLI to you.</li>
+</ol>
+
+<div class="note">
+<p><b>Indexing is incremental.</b> Only files whose SHA-256 changed are re-embedded. Re-indexing after editing one Cubit costs one embedding call, not nine hundred — typically under two seconds.</p>
+</div>
+
+<h2>Why the lexing matters</h2>
+<p>Counting braces over raw text breaks the moment a brace appears inside a comment, a string, or a <code>${...}</code> interpolation. Everything therefore runs over a <i>masked</i> copy of the source in which comments and string literals are blanked out, position for position. This handles nested block comments, raw and triple-quoted strings, and the legal-but-awkward <code>'${map['key']}'</code>.</p>
+
+<p>Braces are also only counted outside parentheses, because Dart spells named parameters <code>({required this.repo})</code> — counting those as a body brace cuts every such constructor in half.</p>
+
+<p class="tight"><b>Validated on your corpus:</b> 885 files, 1,332 declarations, 8,137 members, zero crashes.</p>
+</div>
+
+<!-- ============================================================ 3 -->
+<div class="section">
+<h1>3. Installation</h1>
+
+<p>Already installed on this machine. This section is for a new machine or a teammate.</p>
+
+<h2>Requirements</h2>
+<table class="kv">
+<tr><td>Python</td><td>3.10 or newer</td></tr>
+<tr><td>GPU</td><td>Optional. An NVIDIA card makes indexing fast; without one it falls back to CPU automatically.</td></tr>
+<tr><td>Disk</td><td>~5 GB if a new Python environment is built (the CUDA PyTorch wheel is a ~2.8 GB download)</td></tr>
+<tr><td>Flutter</td><td>Only needed if you want <code>flutter analyze</code> to verify generated code</td></tr>
+</table>
+
+<h2>Install</h2>
+<pre><code><span class="k">cd</span> C:\Users\IRD-83\Desktop\local_flutter_agent
+.\install.ps1</code></pre>
+
+<div class="warn">
+<p><b>By default the installer reuses an existing compatible Python environment</b> rather than building a second one. On this machine it reuses the <code>docs-mcp</code> virtualenv, because it already contains the exact dependency set (torch + CUDA, faiss, sentence-transformers, mcp) and a private copy would cost another ~4.9 GB on a disk that is 91% full.</p>
+<p>Pass <code>-OwnVenv</code> to build a private environment instead.</p>
+</div>
+
+<table>
+<tr><th>Flag</th><th>Effect</th></tr>
+<tr><td><code>-OwnVenv</code></td><td>Build a private <code>.venv</code> instead of reusing one (large download)</td></tr>
+<tr><td><code>-Cpu</code></td><td>Install the CPU-only PyTorch wheel (small, slower indexing)</td></tr>
+<tr><td><code>-SkipRegister</code></td><td>Do not register the MCP server with Claude Code</td></tr>
+<tr><td><code>-SkipIndex</code></td><td>Do not build the index at the end</td></tr>
+<tr><td><code>-ReuseVenv &lt;path&gt;</code></td><td>Point at a specific <code>python.exe</code> to reuse</td></tr>
+</table>
+
+<h2>Put the command on your PATH</h2>
+<p>The executable lives in the shared environment, so add that folder once:</p>
+
+<pre><code><span class="c"># this session only</span>
+$env:PATH += ";C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts"
+
+<span class="c"># permanent</span>
+[Environment]::SetEnvironmentVariable("PATH",
+  $env:PATH + ";C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts", "User")</code></pre>
+
+<h2>Register with Claude Code</h2>
+<p>The installer does this. To do it by hand:</p>
+<pre><code>claude mcp add --scope user flutter-agent -- `
+  C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts\flutter-agent-server.exe</code></pre>
+
+<p>Then <b>restart Claude Code</b> and run <code>/mcp</code>. You should see <code>flutter-agent — Connected</code>.</p>
+</div>
+
+<!-- ============================================================ 4 -->
+<div class="section">
+<h1>4. Registering your projects</h1>
+
+<p>The agent indexes <i>source roots</i>: Flutter apps and shared packages. Register the shared package first, then each app.</p>
+
+<pre><code>flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\corereusablepackage"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\my apps\bilhikma"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\hikmaapp"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\my apps\skygate"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\attendence"
+
+flutter-agent index</code></pre>
+
+<p>The index is <b>global, not per project</b> — deliberately. A pattern should be findable wherever you first wrote it, so searching while working on <code>hikmaapp</code> still surfaces the right answer from <code>bilhikma</code>.</p>
+
+<h3>What gets indexed</h3>
+<p>Every <code>.dart</code> file under the project, except generated code (<code>*.g.dart</code>, <code>*.freezed.dart</code>, <code>*.gr.dart</code>, <code>*.config.dart</code>, <code>*.mocks.dart</code>), tests, and the platform folders (<code>android/</code>, <code>ios/</code>, <code>web/</code>, …). Generated code carries no architectural signal and would swamp retrieval.</p>
+
+<h3>Checking what is registered</h3>
+<pre><code>flutter-agent sources list</code></pre>
+<pre><code>attendence            app      files=111   chunks=224   C:\...\apps\attendence
+bilhikma              app      files=379   chunks=624   C:\...\my apps\bilhikma
+corereusablepackage   package  files=19    chunks=21    C:\...\apps\corereusablepackage
+hikmaapp              app      files=205   chunks=397   C:\...\apps\hikmaapp
+skygate               app      files=171   chunks=351   C:\...\my apps\skygate</code></pre>
+
+<p>Remove one with <code>flutter-agent sources remove bilhikma</code>, then re-index to drop it from the store.</p>
+
+<div class="note">
+<p><b>Per-project tuning</b> is optional. Drop a <code>.flutter-agent.json</code> in a project root to override <code>include</code>, <code>exclude</code>, <code>max_chunk_chars</code> or the embedding model for that project only.</p>
+</div>
+</div>
+
+<!-- ============================================================ 5 -->
+<div class="section">
+<h1>5. Using it inside Claude Code</h1>
+
+<p class="lead">This is the main way to use it. You do not call the tools yourself — you ask normally, and Claude reaches for them.</p>
+
+<table>
+<tr><th>What you say</th><th>What Claude does</th></tr>
+<tr><td>"Add a notifications feature to bilhikma"</td><td><code>flutter_pattern</code> → <code>flutter_component</code> → <code>flutter_scaffold</code></td></tr>
+<tr><td>"Review what I wrote in features/profile"</td><td><code>flutter_check</code> on that folder</td></tr>
+<tr><td>"This body file is too long, split it"</td><td><code>flutter_refactor_plan</code>, then performs the split</td></tr>
+<tr><td>"How do we handle errors here?"</td><td><code>flutter_pattern("error handling")</code></td></tr>
+<tr><td>"Is there a widget for empty states?"</td><td><code>flutter_component()</code></td></tr>
+</table>
+
+<p>You can also name a tool explicitly: <i>"use flutter_search to find how we do pagination"</i>.</p>
+
+<h2>The ten tools</h2>
+<table>
+<tr><th>Tool</th><th>What it answers</th></tr>
+<tr><td><code>flutter_pattern</code></td><td>How this codebase does X — the rule, a golden example, and past corrections. <b>Call before implementing.</b></td></tr>
+<tr><td><code>flutter_search</code></td><td>Semantic search over the Dart corpus, filterable by layer, feature, project or kind</td></tr>
+<tr><td><code>flutter_component</code></td><td>What the shared package exports; with a name, its definition plus real call sites</td></tr>
+<tr><td><code>flutter_check</code></td><td>Architecture-rule violations for a file, feature or project</td></tr>
+<tr><td><code>flutter_refactor_plan</code></td><td>What to extract from an oversized file, largest method first, plus a precedent</td></tr>
+<tr><td><code>flutter_scaffold</code></td><td>A complete feature folder plus localization keys. Dry run by default</td></tr>
+<tr><td><code>flutter_lesson_add</code></td><td>Record a correction so it is recalled later</td></tr>
+<tr><td><code>flutter_lessons</code></td><td>Recall corrections by topic</td></tr>
+<tr><td><code>flutter_reindex</code></td><td>Re-scan sources after a lot of editing</td></tr>
+<tr><td><code>flutter_status</code></td><td>Index health, registered sources, device, counts</td></tr>
+</table>
+
+<div class="note">
+<p><b>Why this makes Claude cheaper as well as better.</b> Without the agent, answering "how do we do pagination here" means reading several large Dart files into context. <code>flutter_pattern</code> returns a few hundred tokens of exactly the relevant declarations instead.</p>
+</div>
+</div>
+
+<!-- ============================================================ 6 -->
+<div class="section">
+<h1>6. Using the command line</h1>
+
+<p>Everything the MCP tools do is available directly. All output below is real.</p>
+
+<h2>pattern — before you write</h2>
+<pre><code>flutter-agent pattern "error handling"</code></pre>
+<p>Returns three things at once: the <b>rule</b> that governs the topic, the <b>golden example</b> from your corpus, and any <b>lessons</b> recorded against it. This is the single most useful command.</p>
+
+<h2>component — before you write a widget</h2>
+<pre><code>flutter-agent component</code></pre>
+<pre><code>corereusablepackage exports 18 symbol(s):
+  src/theme/app_colors.dart          src/widgets/app_empty_state.dart
+  src/theme/app_theme.dart           src/widgets/app_error_state.dart
+  src/theme/build_context_ext.dart   src/widgets/app_loading_overlay.dart
+  src/widgets/app_button.dart        src/widgets/setting_row.dart
+  src/widgets/app_text_field.dart    src/services/toast.dart
+  src/widgets/app_card.dart          src/services/app_cache_service.dart
+  src/widgets/app_avatar.dart        src/services/screen_security_service.dart
+  ...</code></pre>
+
+<p>With a name, you get the definition plus every real call site:</p>
+<pre><code>flutter-agent component AppButton</code></pre>
+
+<h2>search — find anything</h2>
+<pre><code>flutter-agent search "firestore query with where filters" --layer data_source
+flutter-agent search "how a cubit is wired into a screen" --layer screen -n 3
+flutter-agent search "pagination" --project bilhikma --paths-only</code></pre>
+
+<table>
+<tr><th>Option</th><th>Meaning</th></tr>
+<tr><td><code>-n, --limit</code></td><td>Number of results (default 5)</td></tr>
+<tr><td><code>--layer</code></td><td><code>data_source</code>, <code>model</code>, <code>repo</code>, <code>cubit</code>, <code>refactor</code>, <code>screen</code>, <code>widget</code>, <code>core</code></td></tr>
+<tr><td><code>--feature</code></td><td>Feature folder name, e.g. <code>archive</code></td></tr>
+<tr><td><code>--project</code></td><td>Project name, e.g. <code>bilhikma</code></td></tr>
+<tr><td><code>--kind</code></td><td><code>code</code>, <code>rule</code>, <code>pattern</code>, <code>lesson</code></td></tr>
+<tr><td><code>--paths-only</code></td><td>Locations without the source text</td></tr>
+</table>
+
+<h2>check — after you write</h2>
+<pre><code>flutter-agent check "C:\Users\IRD-83\Desktop\my apps\bilhikma\lib\features\home"</code></pre>
+<pre><code>package=bilhikma  1 error(s), 2 warning(s)
+
+lib/features/home/presentation/refactor/home_screen_body.dart:194
+    [R3 error] refactor body is 194 lines, over the 150-line ceiling
+    fix: split the body into presentation/refactor/ or presentation/widgets/
+lib/features/home/presentation/screens/home_screen.dart:81
+    [R3 warning] screen is 81 lines, over the 70-line target</code></pre>
+
+<div class="note">
+<p><b>Scope matters.</b> Checking one feature reports only that feature. Checking the whole <code>lib/</code> additionally runs the project-wide localization audit (R8) — that is where LangKeys / ar.json / en.json drift shows up. On bilhikma that is 130 undeclared translation keys.</p>
+</div>
+
+<h2>refactor — plan a split</h2>
+<pre><code>flutter-agent refactor "C:\...\features\home\presentation\refactor\home_screen_body.dart"</code></pre>
+<pre><code>lib/features/home/presentation/refactor/home_screen_body.dart
+  layer: refactor body   lines: 194 (target 120, ceiling 150)
+  rules: 1 error(s), 0 warning(s)
+    R3 L194: refactor body is 194 lines, over the 150-line ceiling
+
+  split candidates, largest first:
+    _HomeSections.build       L101-192 (92 lines) -> presentation/widgets/
+    HomeScreenBody.build      L39-83  (45 lines) -> presentation/refactor/</code></pre>
+<p>Private classes are routed to <code>widgets/</code>, public ones to <code>refactor/</code>. It returns a plan, not an edit — the restructuring is a judgement call.</p>
+
+<h2>Housekeeping</h2>
+<table class="kv">
+<tr><td>flutter-agent index</td><td>Re-scan all sources (incremental; add <code>--force</code> to rebuild)</td></tr>
+<tr><td>flutter-agent status</td><td>Index health, device, counts by kind and layer</td></tr>
+<tr><td>flutter-agent doctor</td><td>Confirm the GPU is being used</td></tr>
+<tr><td>flutter-agent sources list</td><td>Registered projects</td></tr>
+<tr><td>flutter-agent export-dataset out.jsonl</td><td>Lessons as training data</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ 7 -->
+<div class="section">
+<h1>7. Scaffolding a feature</h1>
+
+<p>Generates eight files plus the localization wiring, modelled on <code>bilhikma/features/archive</code>.</p>
+
+<h2>Step 1 — dry run</h2>
+<pre><code>flutter-agent scaffold notifications --root "C:\Users\IRD-83\Desktop\my apps\bilhikma"</code></pre>
+<pre><code>files:
+  [new] lib/features/notifications/data/data_source/notifications_data_source.dart
+  [new] lib/features/notifications/data/models/notifications_model.dart
+  [new] lib/features/notifications/data/repos/notifications_repo.dart
+  [new] lib/features/notifications/presentation/cubit/notifications_cubit.dart
+  [new] lib/features/notifications/presentation/cubit/notifications_state.dart
+  [new] lib/features/notifications/presentation/refactor/notifications_body.dart
+  [new] lib/features/notifications/presentation/screens/notifications_screen.dart
+  [new] lib/features/notifications/presentation/widgets/notifications_tile.dart
+
+edits:
+  [update] lib/core/localization/lang_keys.dart   - add 4 constant(s)
+  [update] assets/translations/ar.json            - add 4 key(s)
+  [update] assets/translations/en.json            - add 4 key(s)
+
+localization keys:
+  LangKeys.notificationsTitle      = 'notifications_title'
+  LangKeys.notificationsEmpty      = 'notifications_empty'
+  LangKeys.notificationsError      = 'notifications_error'
+  LangKeys.notificationsLoadFailed = 'notifications_load_failed'</code></pre>
+
+<p>The dry run prints the full contents of every file. Nothing is written.</p>
+
+<h2>Step 2 — apply</h2>
+<pre><code>flutter-agent scaffold notifications --root "C:\...\bilhikma" --write</code></pre>
+<p>It refuses to overwrite existing files unless you add <code>--force</code>.</p>
+
+<h2>Step 3 — verify</h2>
+<pre><code>cd "C:\Users\IRD-83\Desktop\my apps\bilhikma"
+flutter analyze lib/features/notifications</code></pre>
+<p class="tight"><code>No issues found!</code> — the generated code compiles as written. This is tested: the scaffolder is also asserted to pass the agent's own twelve rules.</p>
+
+<h2>Step 4 — the one thing left to do</h2>
+<p>The data source ships a working stub with the error contract already in place. Replace the body of <code>fetchItems</code> with the real call:</p>
+
+<pre><code>Future&lt;List&lt;NotificationsModel&gt;&gt; fetchItems() async {
+  try {
+    <span class="c">// replace this with the real backend call</span>
+    const List&lt;Map&lt;String, dynamic&gt;&gt; raw = &lt;Map&lt;String, dynamic&gt;&gt;[];
+    return raw.map(NotificationsModel.fromJson).toList(growable: false);
+  } on NotificationsException {
+    rethrow;
+  } catch (error) {
+    throw NotificationsException(mapError(error));
+  }
+}</code></pre>
+
+<p>Then register it in the service locator — note <code>registerFactory</code> for the cubit:</p>
+<pre><code>getIt
+  ..registerFactory(() =&gt; NotificationsCubit(repo: getIt()))
+  ..registerLazySingleton(() =&gt; NotificationsRepo(dataSource: getIt()))
+  ..registerLazySingleton(NotificationsDataSource.new);</code></pre>
+
+<div class="warn">
+<p><b>Cubits are always <code>registerFactory</code>.</b> A singleton cubit keeps the previous screen's state and emits after <code>close()</code> — the single most common cause of "state from the last time I opened this screen".</p>
+</div>
+
+<h3>Naming</h3>
+<p>The feature name is normalised, so <code>LessonDetail</code>, <code>lesson-detail</code> and <code>lesson detail</code> all produce <code>lesson_detail</code> / <code>LessonDetail</code> / <code>lessonDetail</code> in the right places.</p>
+</div>
+
+<!-- ============================================================ 8 -->
+<div class="section">
+<h1>8. The architecture rules</h1>
+
+<p class="lead">Twelve static checks. No model is involved in any of them — each is a property of the source that can be decided by reading it.</p>
+
+<p>All pattern matching runs against the masked copy of the file, so a rule can <b>never</b> fire on a word inside a comment or a string literal.</p>
+
+<table>
+<tr><th>ID</th><th>Rule</th><th>Severity</th></tr>
+<tr><td><b>R1</b></td><td>Folder layout — no <code>domain/</code>, <code>entities/</code>, <code>use_cases/</code>, <code>repo_interface/</code>, <code>repo_impl/</code>, <code>presentations/</code>; canonical folder names</td><td>error / warning</td></tr>
+<tr><td><b>R2</b></td><td>No <code>package:&lt;own_project&gt;/…</code> self-imports inside <code>lib/</code></td><td>error</td></tr>
+<tr><td><b>R3</b></td><td>Files stay within their layer's line budget</td><td>error / warning</td></tr>
+<tr><td><b>R4</b></td><td>Screens hold no <code>_build…</code> layout methods</td><td>error</td></tr>
+<tr><td><b>R5</b></td><td>Presentation never calls Firestore, Supabase, SharedPreferences, Dio, http, Hive or secure storage</td><td>error</td></tr>
+<tr><td><b>R6</b></td><td>Cubits never touch <code>BuildContext</code>, <code>Navigator</code>, <code>ScaffoldMessenger</code>, dialogs or bottom sheets</td><td>error</td></tr>
+<tr><td><b>R7</b></td><td>UI text goes through <code>LangKeys</code> — never <code>'raw_key'.tr()</code> or a hardcoded string</td><td>error / warning</td></tr>
+<tr><td><b>R8</b></td><td><code>LangKeys</code>, <code>ar.json</code> and <code>en.json</code> describe the same key set</td><td>error / warning</td></tr>
+<tr><td><b>R9</b></td><td>Repos delegate without control flow</td><td>warning</td></tr>
+<tr><td><b>R10</b></td><td>No <code>Expanded</code>/<code>Flexible</code> inside an unconstrained scrollable (heuristic)</td><td>warning</td></tr>
+<tr><td><b>R11</b></td><td>Models define at least one of <code>fromJson</code> / <code>toJson</code></td><td>warning</td></tr>
+<tr><td><b>R12</b></td><td>Features carry the canonical subfolders (grouping folders are skipped)</td><td>warning</td></tr>
+</table>
+
+<h2>Line budgets (R3)</h2>
+<table>
+<tr><th>Layer</th><th>Target</th><th>Ceiling</th></tr>
+<tr><td>Screen</td><td>70</td><td>150</td></tr>
+<tr><td>Refactor body / widget</td><td>120</td><td>150</td></tr>
+<tr><td>Repo</td><td>120</td><td>250</td></tr>
+<tr><td>Model</td><td>200</td><td>400</td></tr>
+<tr><td>Cubit / data source</td><td>400</td><td>900</td></tr>
+</table>
+<p>A cubit has a generous ceiling because behaviour is genuinely its job. A screen has a tight one because a screen that grew past it has absorbed work belonging to a cubit or a widget.</p>
+
+<h2>R6 in practice — the most important rule</h2>
+<pre><code><span class="bad">// wrong — the cubit reaches into the widget tree</span>
+Future&lt;void&gt; save() async {
+  await repo.save();
+  Navigator.of(context).pop();
+  ScaffoldMessenger.of(context).showSnackBar(...);
+}
+
+<span class="good">// right — the cubit emits, the screen listens</span>
+Future&lt;void&gt; save() async {
+  await repo.save();
+  if (isClosed) return;
+  emit(state.copyWith(status: ProfileStatus.saved));
+}</code></pre>
+
+<p>A cubit outlives any single widget and may emit after that widget is gone. Holding a context produces "used a BuildContext across an async gap" at best, and a crash at worst.</p>
+
+<div class="note">
+<p><b><code>if (isClosed) return;</code> after every <code>await</code>, before every <code>emit</code>.</b> The user can leave the screen mid-request, and emitting on a closed cubit throws. This appears in every cubit in your corpus — it is not optional style.</p>
+</div>
+
+<h2>R7 in practice</h2>
+<pre><code><span class="bad">Text('saved_items'.tr())</span>   <span class="c">// raw key — nothing stops a typo</span>
+<span class="bad">Text('Saved items')</span>       <span class="c">// hardcoded, never translated</span>
+<span class="good">Text(LangKeys.savedItems.tr())</span></code></pre>
+<p>The constant is not decoration: <code>'saved_itmes'.tr()</code> compiles, ships, and renders the key itself to the user. <code>LangKeys.savedItmes</code> does not compile.</p>
+<p>Interpolated and non-linguistic strings are correctly ignored — <code>Text('$count')</code>, <code>Text('-')</code>, <code>Text('2x')</code>.</p>
+
+<h2>What it found in your projects</h2>
+<table>
+<tr><th>Project</th><th>Result</th></tr>
+<tr><td><code>corereusablepackage</code></td><td><b>0 findings</b> — the clean reference passes</td></tr>
+<tr><td><code>bilhikma</code></td><td>10 errors: 3 self-imports, several files over the ceiling; 130 undeclared translation keys</td></tr>
+<tr><td><code>skygate</code></td><td>585 errors: 436 self-imports, 177 raw translation strings, 26 files under <code>views/</code>/<code>utils/</code></td></tr>
+</table>
+</div>
+
+<!-- ============================================================ 9 -->
+<div class="section">
+<h1>9. The knowledge base</h1>
+
+<p><code>knowledge/</code> is plain Markdown you can read, edit and commit. Run <code>flutter-agent index</code> after changing it.</p>
+
+<table>
+<tr><th>Folder</th><th>Kind</th><th>Contents</th></tr>
+<tr><td><code>rules/</code></td><td><code>rule</code></td><td>Why a constraint exists, with real before/after</td></tr>
+<tr><td><code>patterns/</code></td><td><code>pattern</code></td><td>Golden examples lifted from the corpus, with commentary</td></tr>
+<tr><td><code>lessons/lessons.jsonl</code></td><td><code>lesson</code></td><td>Append-only corrections captured from sessions</td></tr>
+</table>
+
+<h2>What ships today</h2>
+<p><b>Rule cards:</b> layering, localization, errors, file-size.<br>
+<b>Pattern cards:</b> cubit-and-state, screen-and-body, data-source-and-model, pagination, dependency-injection.</p>
+
+<div class="warn">
+<p><b>This is the part you grow.</b> Topics without a card fall back to a weaker match. The fastest way to add one is to ask Claude: <i>"write a knowledge pattern card for image upload based on how skygate does it"</i> — it reads the corpus, writes the Markdown, and you re-index.</p>
+</div>
+
+<h2>Writing a good card</h2>
+<ul>
+  <li><b>Show real code</b> from the corpus, not invented examples.</li>
+  <li><b>Explain the decision, not the syntax.</b> "Why <code>clearError</code> exists" is useful; "copyWith copies the state" is not.</li>
+  <li><b>Include the wrong version.</b> Retrieval is much better at matching a mistake someone is about to make when the mistake is written down.</li>
+  <li><b>One topic per file</b>, with <code>##</code> headings — the chunker splits on those.</li>
+</ul>
+</div>
+
+<!-- ============================================================ 10 -->
+<div class="section">
+<h1>10. The learning loop</h1>
+
+<p class="lead">This is what makes it an agent that improves rather than a search index that stays still.</p>
+
+<h2>When to record a lesson</h2>
+<ol>
+  <li><b>You correct Claude's Flutter code.</b> Record what was written, what it should have been, and why.</li>
+  <li><b><code>flutter analyze</code> rejects generated code.</b> Record the error and the fix.</li>
+  <li><b><code>flutter_check</code> finds a violation that then gets fixed.</b> Pass the <code>--rule</code> id so the lesson surfaces next to that rule.</li>
+  <li><b>A convention is discovered that no rule encodes.</b> If it recurs, promote it to a <code>rules/</code> card.</li>
+</ol>
+
+<h2>Recording one</h2>
+<pre><code>flutter-agent lesson "cubit registered as singleton" `
+  "getIt..registerFactory(() =&gt; ArchiveCubit(repo: getIt()));" `
+  --wrong "getIt..registerLazySingleton(() =&gt; ArchiveCubit(repo: getIt()));" `
+  --why "A singleton cubit keeps the previous screen's state and emits after close()." `
+  --tag di --tag cubit --layer cubit --rule R6</code></pre>
+<p class="tight"><code>Recorded lesson 9e014a3bcf6a and indexed: cubit registered as singleton</code></p>
+
+<p>In Claude Code you do not type this — you say <i>"remember that"</i> after a correction, and Claude calls <code>flutter_lesson_add</code>.</p>
+
+<h2>Recalling</h2>
+<pre><code>flutter-agent lessons "how do I register a cubit in get_it"</code></pre>
+<p>Lessons also appear automatically inside <code>flutter-agent pattern</code> results, which is the point: the correction surfaces next to the pattern it corrects, before the mistake is repeated.</p>
+
+<div class="note">
+<p><b>Keep <code>right</code> concrete.</b> A lesson whose correction reads "remember to use the repo" is worthless. One containing the five lines that were actually correct is not.</p>
+</div>
+
+<h2>Lessons as training data</h2>
+<pre><code>flutter-agent export-dataset lessons.jsonl</code></pre>
+<p>Converts every lesson to an instruction/response triple (<code>system</code> / <code>user</code> / <code>assistant</code>). This is the deferred path to fine-tuning a local model on your style — worth revisiting at a few hundred real samples, not before.</p>
+
+<h3>On fine-tuning, honestly</h3>
+<p>On a 6 GB laptop GPU, QLoRA on long Dart files is slow and the payoff is modest: a fine-tune bakes in style but not correctness, and it will still invent APIs. Retrieval plus the rule engine gets you most of the value at a fraction of the cost. The dataset is the real asset; keep collecting it and decide later.</p>
+</div>
+
+<!-- ============================================================ 11 -->
+<div class="section">
+<h1>11. Troubleshooting</h1>
+
+<table>
+<tr><th>Symptom</th><th>Cause and fix</th></tr>
+<tr><td>Tools missing in Claude Code</td><td>Restart Claude Code after registering, then <code>/mcp</code>. Verify with <code>claude mcp list</code>.</td></tr>
+<tr><td><code>flutter-agent: command not found</code></td><td>The folder is not on PATH — see section 3, or call the <code>.exe</code> by its full path.</td></tr>
+<tr><td>Searches return nothing</td><td><code>flutter-agent status</code>. If chunks is 0, no sources are registered or indexed.</td></tr>
+<tr><td>Indexing is slow / says <code>device: cpu</code></td><td><code>flutter-agent doctor</code>. If CUDA is unavailable, PyTorch was installed as the CPU wheel.</td></tr>
+<tr><td>Out of GPU memory</td><td>Something else is holding VRAM (ComfyUI is a common culprit — it was using 5.0 of 6.1 GB on this machine). Close it, or set <code>FLUTTER_AGENT_DEVICE=cpu</code>.</td></tr>
+<tr><td><code>health: BROKEN</code></td><td>FAISS and SQLite disagree. Run <code>flutter-agent index --force</code>.</td></tr>
+<tr><td>Results are stale</td><td>Run <code>flutter-agent index</code>. It is incremental and usually takes a second or two.</td></tr>
+<tr><td>Check floods with R8 warnings</td><td>You pointed it at the project root. Point it at one feature folder instead.</td></tr>
+<tr><td>A rule fires wrongly</td><td>R10 is explicitly a heuristic and says so. For the rest, this is a bug — the rules are tested with positive and negative cases in <code>tests/test_rules.py</code>.</td></tr>
+</table>
+
+<h2>Verifying the whole installation</h2>
+<pre><code>flutter-agent doctor      <span class="c"># GPU in use?</span>
+flutter-agent status      <span class="c"># index healthy, counts sensible?</span>
+flutter-agent sources list
+pytest tests -q           <span class="c"># 53 passed</span></code></pre>
+</div>
+
+<!-- ============================================================ 12 -->
+<div class="section">
+<h1>12. Reference</h1>
+
+<h2>Where things live</h2>
+<table class="kv">
+<tr><td>C:\Users\IRD-83\.flutter-agent\index</td><td>FAISS index + SQLite metadata</td></tr>
+<tr><td>C:\Users\IRD-83\.flutter-agent\sources.json</td><td>Registered source roots</td></tr>
+<tr><td>…\local_flutter_agent\knowledge\</td><td>Rule cards, patterns, lessons</td></tr>
+<tr><td>…\local_flutter_agent\src\flutter_agent\</td><td>The package itself</td></tr>
+<tr><td>…\local-mcp\.venv\Scripts\</td><td>The shared Python environment and executables</td></tr>
+</table>
+
+<h2>Environment variables</h2>
+<table class="kv">
+<tr><td>FLUTTER_AGENT_HOME</td><td>Where the index lives (default <code>~/.flutter-agent</code>)</td></tr>
+<tr><td>FLUTTER_AGENT_KNOWLEDGE</td><td>Knowledge folder (default: the repo's <code>knowledge/</code>)</td></tr>
+<tr><td>FLUTTER_AGENT_MODEL</td><td>Embedding model (default <code>all-MiniLM-L6-v2</code>)</td></tr>
+<tr><td>FLUTTER_AGENT_DEVICE</td><td><code>cuda</code> or <code>cpu</code> (default: auto-detect)</td></tr>
+</table>
+
+<h2>Source layout</h2>
+<table class="kv">
+<tr><td>config.py</td><td>Paths, defaults, glob matching</td></tr>
+<tr><td>sources.py</td><td>Registry of indexed Flutter projects</td></tr>
+<tr><td>embedder.py</td><td>sentence-transformers on CUDA, CPU fallback</td></tr>
+<tr><td>store.py</td><td>FAISS + SQLite, metadata columns, filtered search</td></tr>
+<tr><td>dart_parser.py</td><td>Masking lexer and brace scanner</td></tr>
+<tr><td>dart_chunker.py</td><td>Declaration-aware chunking</td></tr>
+<tr><td>layers.py</td><td>Path → (project, feature, layer)</td></tr>
+<tr><td>rules.py</td><td>R1–R12</td></tr>
+<tr><td>scaffold.py</td><td>Feature generator and localization wiring</td></tr>
+<tr><td>lessons.py</td><td>The learning loop and dataset export</td></tr>
+<tr><td>indexer.py</td><td>Incremental, multi-source indexing</td></tr>
+<tr><td>service.py</td><td>Formatted, budgeted tool output</td></tr>
+<tr><td>server.py</td><td>MCP stdio server</td></tr>
+<tr><td>cli.py</td><td>The <code>flutter-agent</code> command</td></tr>
+</table>
+
+<h2>Daily loop, condensed</h2>
+<pre><code><span class="c"># before writing</span>
+flutter-agent pattern "&lt;topic&gt;"
+flutter-agent component
+
+<span class="c"># while writing</span>
+flutter-agent scaffold &lt;feature&gt; --root &lt;project&gt;          <span class="c"># dry run</span>
+flutter-agent scaffold &lt;feature&gt; --root &lt;project&gt; --write
+
+<span class="c"># after writing</span>
+flutter-agent check &lt;feature folder&gt;
+flutter analyze
+
+<span class="c"># when corrected</span>
+flutter-agent lesson "&lt;topic&gt;" "&lt;correct code&gt;" --wrong "..." --why "..."
+
+<span class="c"># housekeeping</span>
+flutter-agent index</code></pre>
+
+<hr>
+<p style="color:var(--muted);font-size:9pt">flutter-agent v0.1 — 5,274 lines of Python, 53 tests. Generated 1 October 2026.</p>
+</div>
+
+</body>
+</html>

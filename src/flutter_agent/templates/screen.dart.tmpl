@@ -1,0 +1,40 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '{{lang_keys_import}}';
+import '../../data/models/{{feature}}_model.dart';
+import '../cubit/{{feature}}_cubit.dart';
+import '../refactor/{{feature}}_body.dart';
+
+class {{Feature}}Screen extends StatelessWidget {
+  const {{Feature}}Screen({super.key, this.onItemTap});
+
+  final ValueChanged<{{Feature}}Model>? onItemTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<{{Feature}}Cubit>(
+      create: (_) => {{Feature}}Cubit(),
+      child: BlocListener<{{Feature}}Cubit, {{Feature}}State>(
+        listenWhen: ({{Feature}}State previous, {{Feature}}State current) =>
+            current.errorKey != null && current.items != null,
+        listener: _showRefreshError,
+        child: Scaffold(
+          appBar: AppBar(title: Text(LangKeys.{{featureCamel}}Title.tr())),
+          body: SafeArea(child: {{Feature}}Body(onItemTap: onItemTap)),
+        ),
+      ),
+    );
+  }
+
+  /// A refresh that fails over existing data is a toast, not a whole error page.
+  void _showRefreshError(BuildContext context, {{Feature}}State state) {
+    final String? errorKey = state.errorKey;
+    if (errorKey == null) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(errorKey.tr())));
+  }
+}

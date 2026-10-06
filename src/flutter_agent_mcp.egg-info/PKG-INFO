@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: flutter-agent-mcp
+Version: 0.1.0
+Summary: Local Flutter clean-architecture agent: semantic search over your Dart corpus, static layer-rule enforcement, feature scaffolding, and a lesson store that learns from Claude sessions
+Requires-Python: >=3.10
+Requires-Dist: mcp<3,>=2.2
+Requires-Dist: faiss-cpu>=1.8
+Requires-Dist: numpy>=1.26
+Requires-Dist: sentence-transformers>=3.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"

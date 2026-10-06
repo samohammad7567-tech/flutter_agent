@@ -1,0 +1,34 @@
+import '../models/{{feature}}_model.dart';
+
+/// Raised with a stable, translatable key so the UI never maps errors itself.
+class {{Feature}}Exception implements Exception {
+  const {{Feature}}Exception(this.key);
+
+  final String key;
+
+  @override
+  String toString() => '{{Feature}}Exception($key)';
+}
+
+/// Owns every {{feature_words}} read and write.
+///
+/// This is the only layer allowed to talk to the backend or to local storage.
+/// Replace the body of [fetchItems] with the real call; the error contract
+/// around it is already in place.
+class {{Feature}}DataSource {
+  const {{Feature}}DataSource();
+
+  Future<List<{{Feature}}Model>> fetchItems() async {
+    try {
+      const List<Map<String, dynamic>> raw = <Map<String, dynamic>>[];
+      return raw.map({{Feature}}Model.fromJson).toList(growable: false);
+    } on {{Feature}}Exception {
+      rethrow;
+    } catch (error) {
+      throw {{Feature}}Exception(mapError(error));
+    }
+  }
+
+  /// Normalises anything thrown underneath into a key both JSON files carry.
+  static String mapError(Object error) => '{{error_key}}';
+}

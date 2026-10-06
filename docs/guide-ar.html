@@ -1,0 +1,604 @@
+<!doctype html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<title>flutter-agent — دليل الاستخدام</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+
+<!-- ============================================================ الغلاف -->
+<div class="cover">
+  <div class="eyebrow">دليل الاستخدام &middot; الإصدار 0.1</div>
+  <h1>flutter-agent</h1>
+  <p class="tagline">وكيل محلّي لمعمارية Flutter النظيفة. بحث دلالي داخل كود Dart الخاص بك، وتطبيق صارم لقواعد الطبقات، وتوليد الـ features بأسلوب مشاريعك، ومخزن دروس يتعلّم من جلسات Claude.</p>
+  <div class="facts">
+    <p><b>يعمل بالكامل على جهازك.</b> لا يخرج أي سطر من الكود إلى الإنترنت، والـ embeddings تُحسب على كرت الشاشة لديك.</p>
+    <p><b>المحتوى المفهرس:</b> 896 ملفًا &middot; 1,664 مقطعًا من corereusablepackage وbilhikma وhikmaapp وskygate وattendence.</p>
+    <p><b>واجهتان:</b> أدوات MCP داخل Claude Code، وسطر الأوامر <code>flutter-agent</code>.</p>
+  </div>
+</div>
+
+<!-- ============================================================ الفهرس -->
+<div class="section">
+<h1>المحتويات</h1>
+<div class="toc">
+<ol>
+  <li><b>ما هو ولماذا وُجد</b> <span>— المشكلة التي يحلّها</span></li>
+  <li><b>كيف يعمل</b> <span>— المسار، وما الذي يُخزَّن</span></li>
+  <li><b>التثبيت</b> <span>— من الصفر على جهاز جديد</span></li>
+  <li><b>تسجيل مشاريعك</b> <span>— المصادر والفهرسة الأولى</span></li>
+  <li><b>استخدامه داخل Claude Code</b> <span>— أدوات MCP</span></li>
+  <li><b>استخدام سطر الأوامر</b> <span>— كل أمر مع مخرجات حقيقية</span></li>
+  <li><b>توليد feature كامل</b> <span>— مثال من البداية للنهاية</span></li>
+  <li><b>قواعد المعمارية</b> <span>— من R1 إلى R12 مع أمثلة</span></li>
+  <li><b>قاعدة المعرفة</b> <span>— القواعد والأنماط والدروس</span></li>
+  <li><b>حلقة التعلّم</b> <span>— كيف يتحسّن مع الوقت</span></li>
+  <li><b>حل المشكلات</b></li>
+  <li><b>مرجع سريع</b> <span>— المسارات والمتغيّرات والبنية</span></li>
+</ol>
+</div>
+</div>
+
+<!-- ============================================================ 1 -->
+<div class="section">
+<h1>1. ما هو ولماذا وُجد</h1>
+
+<p class="lead">أعرافك في كتابة Flutter موجودة في مكانين لا يتحدث أحدهما إلى الآخر: ملف نصّي يشرحها، وقرابة 900 ملف Dart لا يستطيع شيء البحث فيها.</p>
+
+<p>كل جلسة جديدة مع Claude Code تعيد استنتاج معماريتك من <code>CLAUDE.md</code> — أي من <em>وصف</em> القواعد، لا من الكود الذي يطبّقها فعلًا. وكل تصحيح تكتبه يضيع بانتهاء الجلسة.</p>
+
+<p>هذا الوكيل يسدّ الفجوتين:</p>
+
+<ul>
+  <li><b>يفهرس كودك الحقيقي.</b> حين تسأل «كيف نعمل pagination؟» يجيبك بـ <code>PaginatedResult</code> الخاص بك، لا بمثال عام من الإنترنت.</li>
+  <li><b>يطبّق قواعدك تطبيقًا ثابتًا.</b> اثنتا عشرة قاعدة تقرأ الكود وتحكم عليه — بلا أي نموذج ذكاء اصطناعي، فهي سريعة ومجانية ونتيجتها واحدة في كل مرة.</li>
+  <li><b>يولّد الكود بأسلوبك.</b> أي feature يولّده مبنيّ على <code>bilhikma/features/archive</code>، وهو أنظف تطبيق للمعمارية في مشاريعك.</li>
+  <li><b>يتذكّر التصحيحات.</b> حين تصحّح لـ Claude خطأ، يُسجَّل التصحيح ويُفهرس ويعود للظهور في الجلسات القادمة.</li>
+</ul>
+
+<h2>ما ليس هو</h2>
+<p>ليس مولّد كود يغنيك عن التفكير، ولا يقرّر إن كان الكود يُصرَّف (compile) أم لا — فـ <code>flutter analyze</code> يبقى المرجع الوحيد في ذلك، والوكيل يستدعيه فعليًا بدل أن يحاكيه.</p>
+
+<h2>المعمارية التي يفرضها</h2>
+<p>كل feature مكوّن من نصفين فقط، ولا وجود لـ <code>domain/</code> أو <code>entities/</code> أو <code>use_cases/</code> أو <code>repo_interface/</code>:</p>
+
+<pre><code>lib/features/&lt;feature&gt;/
+  data/
+    data_source/   <span class="c"># the ONLY place that talks to a backend or storage</span>
+    models/        <span class="c"># fromJson / toJson</span>
+    repos/         <span class="c"># delegation only, no logic</span>
+  presentation/
+    cubit/         <span class="c"># every decision the screen makes</span>
+    refactor/      <span class="c"># body sections pulled out of a screen</span>
+    screens/       <span class="c"># 30-70 lines: create the cubit, render the body</span>
+    widgets/       <span class="c"># small dumb components</span></code></pre>
+</div>
+
+<!-- ============================================================ 2 -->
+<div class="section">
+<h1>2. كيف يعمل</h1>
+
+<pre><code>Dart projects ───────┐
+knowledge/           ├─► parser ─► chunker ─► embeddings (GPU) ─► FAISS ─┬─► MCP ─► Claude Code
+ (rules, patterns,   │                                                  └─► CLI
+  lessons)  ─────────┘</code></pre>
+
+<h2>الخطوات</h2>
+<ol>
+  <li><b>التحليل (parse).</b> ماسح Dart مكتوب يدويًا يستخرج التعريفات والأعضاء والـ imports والنصوص. ليس مُصرِّفًا ولا يحاول أن يكون — مهمته تحديد الحدود والبيانات الوصفية.</li>
+  <li><b>التقطيع (chunk).</b> مقطع لكل تعريف رئيسي. الـ Cubit الذي يبلغ 600 سطر يُقسَّم عند حدود الدوال، وكل جزء يحتفظ بترويسة الـ class حتى يبقى المقطع مفهومًا بذاته.</li>
+  <li><b>الوسم (tag).</b> كل مقطع يحمل اسم المشروع والـ feature والطبقة والرمز ونطاق الأسطر. هذا ما يجعل <code>--layer data_source</code> ممكنًا.</li>
+  <li><b>التمثيل (embed).</b> يُحسب محليًا على كرت RTX 4050 بنموذج <code>all-MiniLM-L6-v2</code> (نحو 90 ميغابايت). فهرسة كل الكود تستغرق نحو 24 ثانية.</li>
+  <li><b>التخزين.</b> FAISS للمتجهات وSQLite للبيانات الوصفية، مربوطين بحيث لا يمكن أن يختلفا.</li>
+  <li><b>التقديم.</b> عبر MCP إلى Claude Code، وعبر سطر الأوامر إليك.</li>
+</ol>
+
+<div class="note">
+<p><b>الفهرسة تراكمية.</b> لا يُعاد حساب إلا الملفات التي تغيّر محتواها (بمقارنة SHA-256). إعادة الفهرسة بعد تعديل cubit واحد تكلّف عملية واحدة لا تسعمائة — عادةً أقل من ثانيتين.</p>
+</div>
+
+<h2>لماذا التحليل اللغوي مهم</h2>
+<p>عدّ الأقواس في النص الخام ينهار فور ظهور قوس داخل تعليق أو نص أو داخل <code>${...}</code>. لذلك يعمل كل شيء على نسخة <em>مُقنَّعة</em> من الملف، تُمحى فيها التعليقات والنصوص حرفًا بحرف مع الحفاظ على المواضع. هذا يتعامل بشكل صحيح مع التعليقات المتداخلة، والنصوص الخام والثلاثية، وحالة <code>'${map['key']}'</code> الصحيحة لغويًا والمربكة.</p>
+
+<p>كذلك لا تُعدّ الأقواس المعقوفة إلا خارج الأقواس الهلالية، لأن Dart يكتب الوسائط المسمّاة هكذا: <code>({required this.repo})</code> — واعتبارها بداية جسم يقطع كل constructor من هذا النوع إلى نصفين.</p>
+
+<p class="tight"><b>مُختبَر على كودك:</b> 885 ملفًا، 1,332 تعريفًا، 8,137 عضوًا، بدون أي انهيار.</p>
+</div>
+
+<!-- ============================================================ 3 -->
+<div class="section">
+<h1>3. التثبيت</h1>
+
+<p>مُثبَّت بالفعل على هذا الجهاز. هذا القسم موجّه لجهاز جديد أو لزميل في الفريق.</p>
+
+<h2>المتطلبات</h2>
+<table class="kv">
+<tr><td>Python</td><td>الإصدار 3.10 أو أحدث</td></tr>
+<tr><td>GPU</td><td>اختياري. كرت NVIDIA يسرّع الفهرسة، وبدونه ينتقل تلقائيًا إلى المعالج</td></tr>
+<tr><td>مساحة القرص</td><td>نحو 5 غيغابايت إن أُنشئت بيئة Python جديدة (حزمة PyTorch بـ CUDA تحميلها ~2.8 غيغابايت)</td></tr>
+<tr><td>Flutter</td><td>مطلوب فقط إن أردت التحقق من الكود المولّد بـ <code>flutter analyze</code></td></tr>
+</table>
+
+<h2>التثبيت</h2>
+<pre><code><span class="k">cd</span> C:\Users\IRD-83\Desktop\local_flutter_agent
+.\install.ps1</code></pre>
+
+<div class="warn">
+<p><b>المثبّت يعيد استخدام بيئة Python متوافقة موجودة مسبقًا</b> بدل إنشاء ثانية. على هذا الجهاز يستخدم بيئة <code>docs-mcp</code> لأنها تحتوي المكتبات نفسها تمامًا (torch مع CUDA وfaiss وsentence-transformers وmcp)، ولأن نسخة خاصة ستكلّف 4.9 غيغابايت إضافية على قرص ممتلئ بنسبة 91٪.</p>
+<p>استخدم <code>-OwnVenv</code> إن أردت بيئة مستقلة.</p>
+</div>
+
+<table>
+<tr><th>الخيار</th><th>أثره</th></tr>
+<tr><td><code>-OwnVenv</code></td><td>إنشاء بيئة <code>.venv</code> خاصة بدل إعادة الاستخدام (تحميل كبير)</td></tr>
+<tr><td><code>-Cpu</code></td><td>تثبيت نسخة PyTorch للمعالج فقط (صغيرة، فهرسة أبطأ)</td></tr>
+<tr><td><code>-SkipRegister</code></td><td>عدم تسجيل خادم MCP في Claude Code</td></tr>
+<tr><td><code>-SkipIndex</code></td><td>عدم بناء الفهرس في النهاية</td></tr>
+<tr><td><code>-ReuseVenv &lt;path&gt;</code></td><td>تحديد ملف <code>python.exe</code> بعينه لإعادة استخدامه</td></tr>
+</table>
+
+<h2>إضافة الأمر إلى PATH</h2>
+<p>الملف التنفيذي داخل البيئة المشتركة، لذا أضف مجلده مرة واحدة:</p>
+
+<pre><code><span class="c"># this session only</span>
+$env:PATH += ";C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts"
+
+<span class="c"># permanent</span>
+[Environment]::SetEnvironmentVariable("PATH",
+  $env:PATH + ";C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts", "User")</code></pre>
+
+<h2>التسجيل في Claude Code</h2>
+<p>المثبّت يقوم بذلك. ولعمله يدويًا:</p>
+<pre><code>claude mcp add --scope user flutter-agent -- `
+  C:\Users\IRD-83\Desktop\local-mcp\.venv\Scripts\flutter-agent-server.exe</code></pre>
+
+<p>ثم <b>أعد تشغيل Claude Code</b> ونفّذ <code>/mcp</code>، ويفترض أن ترى <code>flutter-agent — Connected</code>.</p>
+</div>
+
+<!-- ============================================================ 4 -->
+<div class="section">
+<h1>4. تسجيل مشاريعك</h1>
+
+<p>الوكيل يفهرس «مصادر» (source roots): تطبيقات Flutter وحزمًا مشتركة. سجّل الحزمة المشتركة أولًا ثم كل تطبيق.</p>
+
+<pre><code>flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\corereusablepackage"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\my apps\bilhikma"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\hikmaapp"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\my apps\skygate"
+flutter-agent sources add "C:\Users\IRD-83\Desktop\apps\attendence"
+
+flutter-agent index</code></pre>
+
+<p>الفهرس <b>واحد لكل المشاريع، لا فهرس لكل مشروع</b> — وهذا مقصود. النمط يجب أن يكون قابلًا للعثور عليه أينما كتبته أول مرة، فالبحث أثناء العمل على <code>hikmaapp</code> يجب أن يُظهر الإجابة الصحيحة من <code>bilhikma</code>.</p>
+
+<h3>ما الذي يُفهرس</h3>
+<p>كل ملف <code>.dart</code> داخل المشروع، عدا الكود المولّد (<code>*.g.dart</code>، <code>*.freezed.dart</code>، <code>*.gr.dart</code>، <code>*.config.dart</code>، <code>*.mocks.dart</code>) والاختبارات ومجلدات المنصّات (<code>android/</code>، <code>ios/</code>، <code>web/</code>…). الكود المولّد لا يحمل أي دلالة معمارية وسيُغرق نتائج البحث.</p>
+
+<h3>معرفة المسجَّل</h3>
+<pre><code>flutter-agent sources list</code></pre>
+<pre><code>attendence            app      files=111   chunks=224   C:\...\apps\attendence
+bilhikma              app      files=379   chunks=624   C:\...\my apps\bilhikma
+corereusablepackage   package  files=19    chunks=21    C:\...\apps\corereusablepackage
+hikmaapp              app      files=205   chunks=397   C:\...\apps\hikmaapp
+skygate               app      files=171   chunks=351   C:\...\my apps\skygate</code></pre>
+
+<p>لإزالة مصدر: <code>flutter-agent sources remove bilhikma</code> ثم أعد الفهرسة لحذفه من المخزن.</p>
+
+<div class="note">
+<p><b>الضبط لكل مشروع</b> اختياري. ضع ملف <code>.flutter-agent.json</code> في جذر المشروع لتغيير <code>include</code> أو <code>exclude</code> أو <code>max_chunk_chars</code> أو نموذج الـ embeddings لذلك المشروع وحده.</p>
+</div>
+</div>
+
+<!-- ============================================================ 5 -->
+<div class="section">
+<h1>5. استخدامه داخل Claude Code</h1>
+
+<p class="lead">هذه الطريقة الأساسية. أنت لا تستدعي الأدوات بنفسك — تطلب طلبك بلغة عادية، وClaude هو من يستدعيها.</p>
+
+<table>
+<tr><th>ما تقوله</th><th>ما يفعله Claude</th></tr>
+<tr><td>«أضف feature للإشعارات في bilhikma»</td><td><code>flutter_pattern</code> ثم <code>flutter_component</code> ثم <code>flutter_scaffold</code></td></tr>
+<tr><td>«راجع ما كتبته في features/profile»</td><td><code>flutter_check</code> على المجلد</td></tr>
+<tr><td>«ملف الـ body هذا طويل، قسّمه»</td><td><code>flutter_refactor_plan</code> ثم ينفّذ التقسيم</td></tr>
+<tr><td>«كيف نتعامل مع الأخطاء هنا؟»</td><td><code>flutter_pattern("error handling")</code></td></tr>
+<tr><td>«هل يوجد widget للحالة الفارغة؟»</td><td><code>flutter_component()</code></td></tr>
+</table>
+
+<p>ويمكنك تسمية الأداة صراحةً: «استخدم flutter_search لتجد كيف نعمل pagination».</p>
+
+<h2>الأدوات العشر</h2>
+<table>
+<tr><th>الأداة</th><th>ما تجيب عنه</th></tr>
+<tr><td><code>flutter_pattern</code></td><td>كيف يفعل هذا الكود كذا — القاعدة ومثال نموذجي والتصحيحات السابقة. <b>استدعها قبل التنفيذ.</b></td></tr>
+<tr><td><code>flutter_search</code></td><td>بحث دلالي في كود Dart مع تصفية حسب الطبقة أو الـ feature أو المشروع أو النوع</td></tr>
+<tr><td><code>flutter_component</code></td><td>ما تصدّره الحزمة المشتركة، ومع اسم: تعريف المكوّن ومواضع استخدامه الحقيقية</td></tr>
+<tr><td><code>flutter_check</code></td><td>مخالفات قواعد المعمارية في ملف أو feature أو مشروع</td></tr>
+<tr><td><code>flutter_refactor_plan</code></td><td>ما الذي يُستخرج من ملف متضخّم، مرتّبًا من الأكبر، مع سابقة نظيفة يُحتذى بها</td></tr>
+<tr><td><code>flutter_scaffold</code></td><td>مجلد feature كامل مع مفاتيح الترجمة. تجربة بلا كتابة افتراضيًا</td></tr>
+<tr><td><code>flutter_lesson_add</code></td><td>تسجيل تصحيح ليُستدعى لاحقًا</td></tr>
+<tr><td><code>flutter_lessons</code></td><td>استرجاع التصحيحات حسب الموضوع</td></tr>
+<tr><td><code>flutter_reindex</code></td><td>إعادة مسح المصادر بعد تعديلات كثيرة</td></tr>
+<tr><td><code>flutter_status</code></td><td>حالة الفهرس والمصادر والجهاز والأعداد</td></tr>
+</table>
+
+<div class="note">
+<p><b>لماذا يجعل هذا Claude أرخص كما يجعله أدق.</b> بلا الوكيل، الإجابة عن «كيف نعمل pagination هنا» تعني قراءة عدة ملفات Dart كبيرة كاملة. أما <code>flutter_pattern</code> فيعيد بضع مئات من الـ tokens تحتوي التعريفات ذات الصلة فقط.</p>
+</div>
+</div>
+
+<!-- ============================================================ 6 -->
+<div class="section">
+<h1>6. استخدام سطر الأوامر</h1>
+
+<p>كل ما تفعله أدوات MCP متاح مباشرةً. كل المخرجات أدناه حقيقية.</p>
+
+<h2>pattern — قبل أن تكتب</h2>
+<pre><code>flutter-agent pattern "error handling"</code></pre>
+<p>يعيد ثلاثة أشياء دفعةً واحدة: <b>القاعدة</b> الحاكمة للموضوع، و<b>المثال النموذجي</b> من كودك، وأي <b>دروس</b> سُجّلت بشأنه. هذا أنفع أمر في الأداة.</p>
+
+<h2>component — قبل أن تكتب widget</h2>
+<pre><code>flutter-agent component</code></pre>
+<pre><code>corereusablepackage exports 18 symbol(s):
+  src/theme/app_colors.dart          src/widgets/app_empty_state.dart
+  src/theme/app_theme.dart           src/widgets/app_error_state.dart
+  src/theme/build_context_ext.dart   src/widgets/app_loading_overlay.dart
+  src/widgets/app_button.dart        src/widgets/setting_row.dart
+  src/widgets/app_text_field.dart    src/services/toast.dart
+  src/widgets/app_card.dart          src/services/app_cache_service.dart
+  src/widgets/app_avatar.dart        src/services/screen_security_service.dart
+  ...</code></pre>
+
+<p>ومع اسم، تحصل على التعريف وكل موضع استُخدم فيه فعلًا:</p>
+<pre><code>flutter-agent component AppButton</code></pre>
+
+<h2>search — ابحث عن أي شيء</h2>
+<pre><code>flutter-agent search "firestore query with where filters" --layer data_source
+flutter-agent search "how a cubit is wired into a screen" --layer screen -n 3
+flutter-agent search "pagination" --project bilhikma --paths-only</code></pre>
+
+<table>
+<tr><th>الخيار</th><th>معناه</th></tr>
+<tr><td><code>-n, --limit</code></td><td>عدد النتائج (افتراضيًا 5)</td></tr>
+<tr><td><code>--layer</code></td><td><code>data_source</code>، <code>model</code>، <code>repo</code>، <code>cubit</code>، <code>refactor</code>، <code>screen</code>، <code>widget</code>، <code>core</code></td></tr>
+<tr><td><code>--feature</code></td><td>اسم مجلد الـ feature، مثل <code>archive</code></td></tr>
+<tr><td><code>--project</code></td><td>اسم المشروع، مثل <code>bilhikma</code></td></tr>
+<tr><td><code>--kind</code></td><td><code>code</code>، <code>rule</code>، <code>pattern</code>، <code>lesson</code></td></tr>
+<tr><td><code>--paths-only</code></td><td>المواضع فقط دون نص الكود</td></tr>
+</table>
+
+<h2>check — بعد أن تكتب</h2>
+<pre><code>flutter-agent check "C:\Users\IRD-83\Desktop\my apps\bilhikma\lib\features\home"</code></pre>
+<pre><code>package=bilhikma  1 error(s), 2 warning(s)
+
+lib/features/home/presentation/refactor/home_screen_body.dart:194
+    [R3 error] refactor body is 194 lines, over the 150-line ceiling
+    fix: split the body into presentation/refactor/ or presentation/widgets/
+lib/features/home/presentation/screens/home_screen.dart:81
+    [R3 warning] screen is 81 lines, over the 70-line target</code></pre>
+
+<div class="note">
+<p><b>النطاق مهم.</b> فحص feature واحد يعرض مخالفات ذلك الـ feature فقط. أما فحص <code>lib/</code> كاملًا فيضيف تدقيق الترجمة على مستوى المشروع (القاعدة R8) — وهناك يظهر الاختلاف بين LangKeys وar.json وen.json. في bilhikma هناك 130 مفتاح ترجمة غير معرّف في LangKeys.</p>
+</div>
+
+<h2>refactor — خطة تقسيم</h2>
+<pre><code>flutter-agent refactor "C:\...\features\home\presentation\refactor\home_screen_body.dart"</code></pre>
+<pre><code>lib/features/home/presentation/refactor/home_screen_body.dart
+  layer: refactor body   lines: 194 (target 120, ceiling 150)
+  rules: 1 error(s), 0 warning(s)
+    R3 L194: refactor body is 194 lines, over the 150-line ceiling
+
+  split candidates, largest first:
+    _HomeSections.build       L101-192 (92 lines) -> presentation/widgets/
+    HomeScreenBody.build      L39-83  (45 lines) -> presentation/refactor/</code></pre>
+<p>الـ classes الخاصة (التي تبدأ بـ <code>_</code>) تُوجَّه إلى <code>widgets/</code> والعامة إلى <code>refactor/</code>. والأمر يعيد خطة لا تعديلًا، لأن إعادة الهيكلة قرار يحتاج حكمًا بشريًا.</p>
+
+<h2>أوامر الصيانة</h2>
+<table class="kv">
+<tr><td>flutter-agent index</td><td>إعادة مسح كل المصادر (تراكمية؛ أضف <code>--force</code> لإعادة البناء كاملًا)</td></tr>
+<tr><td>flutter-agent status</td><td>حالة الفهرس والجهاز والأعداد حسب النوع والطبقة</td></tr>
+<tr><td>flutter-agent doctor</td><td>التأكد من أن كرت الشاشة يُستخدم</td></tr>
+<tr><td>flutter-agent sources list</td><td>المشاريع المسجّلة</td></tr>
+<tr><td>flutter-agent export-dataset out.jsonl</td><td>تصدير الدروس كبيانات تدريب</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ 7 -->
+<div class="section">
+<h1>7. توليد feature كامل</h1>
+
+<p>يولّد ثمانية ملفات مع ربط الترجمة، على نسق <code>bilhikma/features/archive</code>.</p>
+
+<h2>الخطوة 1 — تجربة بلا كتابة</h2>
+<pre><code>flutter-agent scaffold notifications --root "C:\Users\IRD-83\Desktop\my apps\bilhikma"</code></pre>
+<pre><code>files:
+  [new] lib/features/notifications/data/data_source/notifications_data_source.dart
+  [new] lib/features/notifications/data/models/notifications_model.dart
+  [new] lib/features/notifications/data/repos/notifications_repo.dart
+  [new] lib/features/notifications/presentation/cubit/notifications_cubit.dart
+  [new] lib/features/notifications/presentation/cubit/notifications_state.dart
+  [new] lib/features/notifications/presentation/refactor/notifications_body.dart
+  [new] lib/features/notifications/presentation/screens/notifications_screen.dart
+  [new] lib/features/notifications/presentation/widgets/notifications_tile.dart
+
+edits:
+  [update] lib/core/localization/lang_keys.dart   - add 4 constant(s)
+  [update] assets/translations/ar.json            - add 4 key(s)
+  [update] assets/translations/en.json            - add 4 key(s)
+
+localization keys:
+  LangKeys.notificationsTitle      = 'notifications_title'
+  LangKeys.notificationsEmpty      = 'notifications_empty'
+  LangKeys.notificationsError      = 'notifications_error'
+  LangKeys.notificationsLoadFailed = 'notifications_load_failed'</code></pre>
+
+<p>التجربة تطبع محتوى كل ملف كاملًا، ولا تكتب شيئًا على القرص.</p>
+
+<h2>الخطوة 2 — التنفيذ</h2>
+<pre><code>flutter-agent scaffold notifications --root "C:\...\bilhikma" --write</code></pre>
+<p>ويرفض الكتابة فوق ملفات موجودة إلا بإضافة <code>--force</code>.</p>
+
+<h2>الخطوة 3 — التحقق</h2>
+<pre><code>cd "C:\Users\IRD-83\Desktop\my apps\bilhikma"
+flutter analyze lib/features/notifications</code></pre>
+<p class="tight"><code>No issues found!</code> — الكود المولّد يُصرَّف كما هو. وهذا مُختبَر: المولّد نفسه مطلوب منه أن يجتاز قواعد الوكيل الاثنتي عشرة.</p>
+
+<h2>الخطوة 4 — ما يتبقّى عليك</h2>
+<p>الـ data source يأتي بهيكل عامل مع عقد الأخطاء جاهزًا. استبدل جسم <code>fetchItems</code> بالاستدعاء الحقيقي:</p>
+
+<pre><code>Future&lt;List&lt;NotificationsModel&gt;&gt; fetchItems() async {
+  try {
+    <span class="c">// replace this with the real backend call</span>
+    const List&lt;Map&lt;String, dynamic&gt;&gt; raw = &lt;Map&lt;String, dynamic&gt;&gt;[];
+    return raw.map(NotificationsModel.fromJson).toList(growable: false);
+  } on NotificationsException {
+    rethrow;
+  } catch (error) {
+    throw NotificationsException(mapError(error));
+  }
+}</code></pre>
+
+<p>ثم سجّله في الـ service locator، ولاحظ <code>registerFactory</code> للـ cubit:</p>
+<pre><code>getIt
+  ..registerFactory(() =&gt; NotificationsCubit(repo: getIt()))
+  ..registerLazySingleton(() =&gt; NotificationsRepo(dataSource: getIt()))
+  ..registerLazySingleton(NotificationsDataSource.new);</code></pre>
+
+<div class="warn">
+<p><b>الـ cubits تُسجَّل دائمًا بـ <code>registerFactory</code>.</b> تسجيل cubit كـ singleton يبقي حالة الشاشة السابقة ويُطلق <code>emit</code> بعد <code>close()</code> — وهو أشهر سبب لمشكلة «الحالة من آخر مرة فتحت فيها هذه الشاشة».</p>
+</div>
+
+<h3>التسمية</h3>
+<p>اسم الـ feature يُطبَّع تلقائيًا، فـ <code>LessonDetail</code> و<code>lesson-detail</code> و<code>lesson detail</code> كلها تعطي <code>lesson_detail</code> و<code>LessonDetail</code> و<code>lessonDetail</code> كلٌّ في موضعه الصحيح.</p>
+</div>
+
+<!-- ============================================================ 8 -->
+<div class="section">
+<h1>8. قواعد المعمارية</h1>
+
+<p class="lead">اثنتا عشرة قاعدة ثابتة. لا نموذج ذكاء اصطناعي في أيٍّ منها — كل قاعدة خاصية في الكود يمكن الحكم عليها بالقراءة.</p>
+
+<p>كل المطابقات تجري على النسخة المُقنَّعة من الملف، لذا <b>يستحيل</b> أن تنطلق قاعدة بسبب كلمة داخل تعليق أو نص.</p>
+
+<table>
+<tr><th>الرمز</th><th>القاعدة</th><th>الشدّة</th></tr>
+<tr><td><b>R1</b></td><td>بنية المجلدات — لا <code>domain/</code> ولا <code>entities/</code> ولا <code>use_cases/</code> ولا <code>repo_interface/</code> ولا <code>repo_impl/</code> ولا <code>presentations/</code>، مع أسماء مجلدات معيارية</td><td>خطأ / تحذير</td></tr>
+<tr><td><b>R2</b></td><td>ممنوع استيراد المشروع من نفسه بـ <code>package:&lt;own_project&gt;/…</code> داخل <code>lib/</code></td><td>خطأ</td></tr>
+<tr><td><b>R3</b></td><td>الملفات ضمن حدّ الأسطر المسموح لطبقتها</td><td>خطأ / تحذير</td></tr>
+<tr><td><b>R4</b></td><td>الشاشات لا تحتوي دوال <code>_build…</code></td><td>خطأ</td></tr>
+<tr><td><b>R5</b></td><td>طبقة العرض لا تستدعي Firestore أو Supabase أو SharedPreferences أو Dio أو http أو Hive أو التخزين الآمن</td><td>خطأ</td></tr>
+<tr><td><b>R6</b></td><td>الـ cubits لا تمسّ <code>BuildContext</code> ولا <code>Navigator</code> ولا <code>ScaffoldMessenger</code> ولا الحوارات</td><td>خطأ</td></tr>
+<tr><td><b>R7</b></td><td>نصوص الواجهة تمرّ عبر <code>LangKeys</code> — لا <code>'raw_key'.tr()</code> ولا نص مكتوب مباشرةً</td><td>خطأ / تحذير</td></tr>
+<tr><td><b>R8</b></td><td><code>LangKeys</code> و<code>ar.json</code> و<code>en.json</code> تحمل المفاتيح نفسها</td><td>خطأ / تحذير</td></tr>
+<tr><td><b>R9</b></td><td>الـ repos تمرّر بلا أي منطق تفرّع</td><td>تحذير</td></tr>
+<tr><td><b>R10</b></td><td>لا <code>Expanded</code>/<code>Flexible</code> داخل منطقة تمرير غير محدودة الارتفاع (قاعدة استدلالية)</td><td>تحذير</td></tr>
+<tr><td><b>R11</b></td><td>الـ models تعرّف <code>fromJson</code> أو <code>toJson</code> على الأقل</td><td>تحذير</td></tr>
+<tr><td><b>R12</b></td><td>كل feature يحوي المجلدات المعيارية (مجلدات التجميع مستثناة)</td><td>تحذير</td></tr>
+</table>
+
+<h2>حدود الأسطر (R3)</h2>
+<table>
+<tr><th>الطبقة</th><th>المستهدف</th><th>الحد الأقصى</th></tr>
+<tr><td>Screen</td><td>70</td><td>150</td></tr>
+<tr><td>Refactor body / widget</td><td>120</td><td>150</td></tr>
+<tr><td>Repo</td><td>120</td><td>250</td></tr>
+<tr><td>Model</td><td>200</td><td>400</td></tr>
+<tr><td>Cubit / data source</td><td>400</td><td>900</td></tr>
+</table>
+<p>الـ cubit له حدّ واسع لأن السلوك وظيفته فعلًا. أما الشاشة فحدّها ضيّق لأن الشاشة التي تجاوزته تكون قد ابتلعت عملًا يخصّ cubit أو widget.</p>
+
+<h2>القاعدة R6 عمليًا — أهم قاعدة</h2>
+<pre><code><span class="bad">// WRONG - the cubit reaches into the widget tree</span>
+Future&lt;void&gt; save() async {
+  await repo.save();
+  Navigator.of(context).pop();
+  ScaffoldMessenger.of(context).showSnackBar(...);
+}
+
+<span class="good">// RIGHT - the cubit emits, the screen listens</span>
+Future&lt;void&gt; save() async {
+  await repo.save();
+  if (isClosed) return;
+  emit(state.copyWith(status: ProfileStatus.saved));
+}</code></pre>
+
+<p>الـ cubit يعيش أطول من أي widget وقد يُصدر حالة بعد اختفائه. الاحتفاظ بـ context ينتج عنه في أحسن الأحوال خطأ «استخدام BuildContext عبر فجوة غير متزامنة»، وفي أسوئها انهيار التطبيق.</p>
+
+<div class="note">
+<p><b><code>if (isClosed) return;</code> بعد كل <code>await</code> وقبل كل <code>emit</code>.</b> المستخدم قد يغادر الشاشة أثناء الطلب، والإصدار على cubit مغلق يرمي استثناءً. هذا السطر موجود في كل cubit في كودك — ليس أسلوبًا اختياريًا.</p>
+</div>
+
+<h2>القاعدة R7 عمليًا</h2>
+<pre><code><span class="bad">Text('saved_items'.tr())</span>   <span class="c">// raw key - nothing stops a typo</span>
+<span class="bad">Text('Saved items')</span>       <span class="c">// hardcoded, never translated</span>
+<span class="good">Text(LangKeys.savedItems.tr())</span></code></pre>
+<p>الثابت ليس زينة: <code>'saved_itmes'.tr()</code> يُصرَّف ويُنشر ويعرض المفتاح نفسه للمستخدم، بينما <code>LangKeys.savedItmes</code> لا يُصرَّف أصلًا.</p>
+<p>والنصوص المُدمَجة وغير اللغوية تُستثنى بشكل صحيح: <code>Text('$count')</code> و<code>Text('-')</code> و<code>Text('2x')</code>.</p>
+
+<h2>ما وجده في مشاريعك</h2>
+<table>
+<tr><th>المشروع</th><th>النتيجة</th></tr>
+<tr><td><code>corereusablepackage</code></td><td><b>صفر مخالفات</b> — المرجع النظيف يجتاز الفحص</td></tr>
+<tr><td><code>bilhikma</code></td><td>10 أخطاء: 3 استيرادات ذاتية وملفات تجاوزت الحد؛ و130 مفتاح ترجمة غير معرّف</td></tr>
+<tr><td><code>skygate</code></td><td>585 خطأ: 436 استيرادًا ذاتيًا و177 نص ترجمة خامًا و26 ملفًا تحت <code>views/</code> و<code>utils/</code></td></tr>
+</table>
+</div>
+
+<!-- ============================================================ 9 -->
+<div class="section">
+<h1>9. قاعدة المعرفة</h1>
+
+<p>مجلد <code>knowledge/</code> ملفات Markdown عادية تقرأها وتعدّلها وتضعها في Git. نفّذ <code>flutter-agent index</code> بعد أي تعديل.</p>
+
+<table>
+<tr><th>المجلد</th><th>النوع</th><th>المحتوى</th></tr>
+<tr><td><code>rules/</code></td><td><code>rule</code></td><td>لماذا وُجد القيد، مع مثال قبل/بعد حقيقي</td></tr>
+<tr><td><code>patterns/</code></td><td><code>pattern</code></td><td>أمثلة نموذجية مأخوذة من كودك مع شرح القرارات</td></tr>
+<tr><td><code>lessons/lessons.jsonl</code></td><td><code>lesson</code></td><td>تصحيحات تُضاف تباعًا من الجلسات</td></tr>
+</table>
+
+<h2>الموجود حاليًا</h2>
+<p><b>بطاقات قواعد:</b> layering، localization، errors، file-size.<br>
+<b>بطاقات أنماط:</b> cubit-and-state، screen-and-body، data-source-and-model، pagination، dependency-injection.</p>
+
+<div class="warn">
+<p><b>هذا هو الجزء الذي تنمّيه أنت.</b> أي موضوع بلا بطاقة ستكون نتيجته أضعف. وأسرع طريقة لإضافة بطاقة أن تطلب من Claude: «اكتب بطاقة نمط لرفع الصور بناءً على طريقة skygate» — فيقرأ الكود ويكتب الملف، ثم تعيد الفهرسة.</p>
+</div>
+
+<h2>كيف تكتب بطاقة جيدة</h2>
+<ul>
+  <li><b>اعرض كودًا حقيقيًا</b> من مشاريعك، لا أمثلة مخترعة.</li>
+  <li><b>اشرح القرار لا الصياغة.</b> «لماذا وُجد <code>clearError</code>» مفيد، أما «copyWith ينسخ الحالة» فلا.</li>
+  <li><b>أدرج النسخة الخاطئة.</b> البحث يصبح أدق كثيرًا في التقاط خطأ على وشك الحدوث حين يكون الخطأ مكتوبًا.</li>
+  <li><b>موضوع واحد لكل ملف</b> بعناوين <code>##</code> — فالمقطِّع يعتمد عليها.</li>
+</ul>
+</div>
+
+<!-- ============================================================ 10 -->
+<div class="section">
+<h1>10. حلقة التعلّم</h1>
+
+<p class="lead">هذا ما يجعله وكيلًا يتحسّن، لا مجرّد فهرس بحث جامد.</p>
+
+<h2>متى تسجّل درسًا</h2>
+<ol>
+  <li><b>حين تصحّح كود Flutter الذي كتبه Claude.</b> سجّل ما كُتب وما كان يجب أن يُكتب والسبب.</li>
+  <li><b>حين يرفض <code>flutter analyze</code> كودًا مولّدًا.</b> سجّل الخطأ وإصلاحه.</li>
+  <li><b>حين يجد <code>flutter_check</code> مخالفة ثم تُصلَح.</b> مرّر رمز القاعدة بـ <code>--rule</code> ليظهر الدرس بجوارها.</li>
+  <li><b>حين يتبيّن عُرف لا تغطّيه أي قاعدة.</b> إن تكرّر، رقِّه إلى بطاقة في <code>rules/</code>.</li>
+</ol>
+
+<h2>تسجيل درس</h2>
+<pre><code>flutter-agent lesson "cubit registered as singleton" `
+  "getIt..registerFactory(() =&gt; ArchiveCubit(repo: getIt()));" `
+  --wrong "getIt..registerLazySingleton(() =&gt; ArchiveCubit(repo: getIt()));" `
+  --why "A singleton cubit keeps the previous screen's state and emits after close()." `
+  --tag di --tag cubit --layer cubit --rule R6</code></pre>
+<p class="tight"><code>Recorded lesson 9e014a3bcf6a and indexed: cubit registered as singleton</code></p>
+
+<p>وداخل Claude Code لا تكتب هذا بنفسك — تقول «احفظ هذا» بعد التصحيح، فيستدعي Claude أداة <code>flutter_lesson_add</code>.</p>
+
+<h2>الاسترجاع</h2>
+<pre><code>flutter-agent lessons "how do I register a cubit in get_it"</code></pre>
+<p>والدروس تظهر تلقائيًا أيضًا ضمن نتائج <code>flutter-agent pattern</code>، وهذا هو المقصود: أن يظهر التصحيح بجوار النمط الذي يصحّحه، قبل تكرار الخطأ.</p>
+
+<div class="note">
+<p><b>اجعل حقل <code>right</code> ملموسًا.</b> درس تصحيحه «تذكّر أن تستخدم الـ repo» لا قيمة له، أما درس يحتوي الأسطر الخمسة الصحيحة فعلًا فله قيمة.</p>
+</div>
+
+<h2>الدروس كبيانات تدريب</h2>
+<pre><code>flutter-agent export-dataset lessons.jsonl</code></pre>
+<p>يحوّل كل درس إلى ثلاثية تعليمات/استجابة (<code>system</code> / <code>user</code> / <code>assistant</code>). هذا هو الطريق المؤجَّل لتدريب نموذج محلي على أسلوبك — ويستحق إعادة النظر عند بضع مئات من الدروس الحقيقية، لا قبل ذلك.</p>
+
+<h3>عن الـ fine-tuning بصراحة</h3>
+<p>على كرت شاشة محمول بسعة 6 غيغابايت، تدريب QLoRA على ملفات Dart الطويلة بطيء وعائده متواضع: التدريب يرسّخ الأسلوب لا الصحة، وسيظل النموذج يخترع دوال غير موجودة. أما البحث الدلالي مع محرّك القواعد فيعطيك معظم الفائدة بجزء يسير من التكلفة. البيانات هي الأصل الحقيقي؛ اجمعها واتخذ القرار لاحقًا.</p>
+</div>
+
+<!-- ============================================================ 11 -->
+<div class="section">
+<h1>11. حل المشكلات</h1>
+
+<table>
+<tr><th>العَرَض</th><th>السبب والحل</th></tr>
+<tr><td>الأدوات لا تظهر في Claude Code</td><td>أعد تشغيل Claude Code بعد التسجيل ثم نفّذ <code>/mcp</code>. وتحقّق بـ <code>claude mcp list</code>.</td></tr>
+<tr><td><code>flutter-agent: command not found</code></td><td>المجلد غير مضاف إلى PATH — راجع القسم 3، أو استدعِ ملف <code>.exe</code> بمساره الكامل.</td></tr>
+<tr><td>البحث لا يعيد شيئًا</td><td>نفّذ <code>flutter-agent status</code>. إن كان عدد المقاطع صفرًا فلا مصادر مسجّلة أو مفهرسة.</td></tr>
+<tr><td>الفهرسة بطيئة أو تظهر <code>device: cpu</code></td><td>نفّذ <code>flutter-agent doctor</code>. إن كان CUDA غير متاح فقد ثُبّتت نسخة PyTorch الخاصة بالمعالج.</td></tr>
+<tr><td>نفاد ذاكرة كرت الشاشة</td><td>برنامج آخر يحجز الذاكرة (ComfyUI سبب شائع — كان يستهلك 5.0 من 6.1 غيغابايت على هذا الجهاز). أغلقه أو اضبط <code>FLUTTER_AGENT_DEVICE=cpu</code>.</td></tr>
+<tr><td><code>health: BROKEN</code></td><td>اختلاف بين FAISS وSQLite. نفّذ <code>flutter-agent index --force</code>.</td></tr>
+<tr><td>النتائج قديمة</td><td>نفّذ <code>flutter-agent index</code>. الفهرسة تراكمية وتستغرق ثانية أو ثانيتين عادةً.</td></tr>
+<tr><td>الفحص يغرق في تحذيرات R8</td><td>وجّهته إلى جذر المشروع. وجّهه إلى مجلد feature واحد بدلًا من ذلك.</td></tr>
+<tr><td>قاعدة تنطلق خطأً</td><td>القاعدة R10 استدلالية صراحةً وتقول ذلك. أما البقية فهذا خلل — القواعد مُختبَرة بحالات صحيحة وخاطئة في <code>tests/test_rules.py</code>.</td></tr>
+</table>
+
+<h2>التحقق من سلامة التثبيت كاملًا</h2>
+<pre><code>flutter-agent doctor      <span class="c"># is the GPU in use?</span>
+flutter-agent status      <span class="c"># index healthy, counts sensible?</span>
+flutter-agent sources list
+pytest tests -q           <span class="c"># 53 passed</span></code></pre>
+</div>
+
+<!-- ============================================================ 12 -->
+<div class="section">
+<h1>12. مرجع سريع</h1>
+
+<h2>أين توجد الأشياء</h2>
+<table class="kv">
+<tr><td>C:\Users\IRD-83\.flutter-agent\index</td><td>فهرس FAISS وبيانات SQLite</td></tr>
+<tr><td>C:\Users\IRD-83\.flutter-agent\sources.json</td><td>المصادر المسجّلة</td></tr>
+<tr><td>…\local_flutter_agent\knowledge\</td><td>بطاقات القواعد والأنماط والدروس</td></tr>
+<tr><td>…\local_flutter_agent\src\flutter_agent\</td><td>الحزمة نفسها</td></tr>
+<tr><td>…\local-mcp\.venv\Scripts\</td><td>بيئة Python المشتركة والملفات التنفيذية</td></tr>
+</table>
+
+<h2>متغيّرات البيئة</h2>
+<table class="kv">
+<tr><td>FLUTTER_AGENT_HOME</td><td>موضع الفهرس (افتراضيًا <code>~/.flutter-agent</code>)</td></tr>
+<tr><td>FLUTTER_AGENT_KNOWLEDGE</td><td>مجلد المعرفة (افتراضيًا <code>knowledge/</code> داخل المشروع)</td></tr>
+<tr><td>FLUTTER_AGENT_MODEL</td><td>نموذج الـ embeddings (افتراضيًا <code>all-MiniLM-L6-v2</code>)</td></tr>
+<tr><td>FLUTTER_AGENT_DEVICE</td><td><code>cuda</code> أو <code>cpu</code> (افتراضيًا: كشف تلقائي)</td></tr>
+</table>
+
+<h2>بنية الكود</h2>
+<table class="kv">
+<tr><td>config.py</td><td>المسارات والقيم الافتراضية ومطابقة الأنماط</td></tr>
+<tr><td>sources.py</td><td>سجلّ مشاريع Flutter المفهرسة</td></tr>
+<tr><td>embedder.py</td><td>sentence-transformers على CUDA مع التراجع إلى المعالج</td></tr>
+<tr><td>store.py</td><td>FAISS وSQLite والأعمدة الوصفية والبحث المُصفّى</td></tr>
+<tr><td>dart_parser.py</td><td>محلل التقنيع وماسح الأقواس</td></tr>
+<tr><td>dart_chunker.py</td><td>تقطيع واعٍ بالتعريفات</td></tr>
+<tr><td>layers.py</td><td>تحويل المسار إلى (مشروع، feature، طبقة)</td></tr>
+<tr><td>rules.py</td><td>القواعد من R1 إلى R12</td></tr>
+<tr><td>scaffold.py</td><td>مولّد الـ features وربط الترجمة</td></tr>
+<tr><td>lessons.py</td><td>حلقة التعلّم وتصدير البيانات</td></tr>
+<tr><td>indexer.py</td><td>فهرسة تراكمية متعدّدة المصادر</td></tr>
+<tr><td>service.py</td><td>تنسيق المخرجات ضمن حدّ محدّد</td></tr>
+<tr><td>server.py</td><td>خادم MCP</td></tr>
+<tr><td>cli.py</td><td>أمر <code>flutter-agent</code></td></tr>
+</table>
+
+<h2>الدورة اليومية مختصرة</h2>
+<pre><code><span class="c"># before writing</span>
+flutter-agent pattern "&lt;topic&gt;"
+flutter-agent component
+
+<span class="c"># while writing</span>
+flutter-agent scaffold &lt;feature&gt; --root &lt;project&gt;          <span class="c"># dry run</span>
+flutter-agent scaffold &lt;feature&gt; --root &lt;project&gt; --write
+
+<span class="c"># after writing</span>
+flutter-agent check &lt;feature folder&gt;
+flutter analyze
+
+<span class="c"># when corrected</span>
+flutter-agent lesson "&lt;topic&gt;" "&lt;correct code&gt;" --wrong "..." --why "..."
+
+<span class="c"># housekeeping</span>
+flutter-agent index</code></pre>
+
+<hr>
+<p style="color:var(--muted);font-size:9pt">flutter-agent الإصدار 0.1 — 5,274 سطر Python و53 اختبارًا. أُنشئ في 1 أكتوبر 2026.</p>
+</div>
+
+</body>
+</html>

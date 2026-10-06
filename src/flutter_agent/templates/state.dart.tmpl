@@ -1,0 +1,34 @@
+part of '{{feature}}_cubit.dart';
+
+enum {{Feature}}Status { initial, loading, success, failure, empty }
+
+final class {{Feature}}State {
+  const {{Feature}}State({
+    this.status = {{Feature}}Status.initial,
+    this.items,
+    this.errorKey,
+  });
+
+  final {{Feature}}Status status;
+  final List<{{Feature}}Model>? items;
+  final String? errorKey;
+
+  bool get isLoading => status == {{Feature}}Status.loading;
+  bool get isFirstLoad => isLoading && items == null;
+  bool get hasFailed => status == {{Feature}}Status.failure && items == null;
+  bool get isEmpty => status == {{Feature}}Status.empty;
+
+  List<{{Feature}}Model> get visibleItems =>
+      items ?? const <{{Feature}}Model>[];
+
+  {{Feature}}State copyWith({
+    {{Feature}}Status? status,
+    List<{{Feature}}Model>? items,
+    String? errorKey,
+    bool clearError = false,
+  }) => {{Feature}}State(
+    status: status ?? this.status,
+    items: items ?? this.items,
+    errorKey: clearError ? null : errorKey ?? this.errorKey,
+  );
+}

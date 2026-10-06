@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flutter-agent-mcp"
+version = "0.1.0"
+description = "Local Flutter clean-architecture agent: semantic search over your Dart corpus, static layer-rule enforcement, feature scaffolding, and a lesson store that learns from Claude sessions"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.2,<3",
+    "faiss-cpu>=1.8",
+    "numpy>=1.26",
+    "sentence-transformers>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+flutter-agent = "flutter_agent.cli:main"
+flutter-agent-server = "flutter_agent.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+flutter_agent = ["templates/*.tmpl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
