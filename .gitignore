@@ -15,3 +15,16 @@ dist/
 # Virtualenvs
 .venv/
 venv/
+
+# Flutter fixture: only lib/, assets/ and the manifests are the fixture. The
+# platform scaffolding and resolved pub versions come back from
+# `flutter create .` and `flutter pub get`, so they stay out of the repo.
+tests/fixtures/quick_tasks/android/
+tests/fixtures/quick_tasks/ios/
+tests/fixtures/quick_tasks/linux/
+tests/fixtures/quick_tasks/macos/
+tests/fixtures/quick_tasks/web/
+tests/fixtures/quick_tasks/windows/
+tests/fixtures/quick_tasks/pubspec.lock
+tests/fixtures/quick_tasks/.metadata
+tests/fixtures/quick_tasks/.flutter-plugins-dependencies
