@@ -179,6 +179,62 @@ def test_r12_skips_grouping_folders(project):
     assert r12 == []
 
 
+def _r12_paths(project):
+    findings, _ = check_path(project / "lib", include_localization=False)
+    return sorted(f.path for f in findings if f.rule_id == "R12")
+
+
+def test_r12_accepts_a_presentation_only_feature(project):
+    """A screen feature that reads a cubit it does not own needs no folders."""
+    base = project / "lib/features/settings"
+    (base / "presentation/screens").mkdir(parents=True)
+    (base / "presentation/refactor").mkdir(parents=True)
+    (base / "presentation/refactor/settings_body.dart").write_text(
+        "class SettingsBody extends StatelessWidget {\n"
+        "  Widget build(BuildContext context) =>\n"
+        "      context.read<AppPreferencesCubit>().state.widget;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    assert _r12_paths(project) == []
+
+
+def test_r12_still_wants_a_cubit_when_none_is_read(project):
+    """No data/ and no cubit anywhere: the state management really is missing."""
+    base = project / "lib/features/about"
+    (base / "presentation/screens").mkdir(parents=True)
+    (base / "presentation/screens/about_screen.dart").write_text(
+        "class AboutScreen extends StatelessWidget {}\n", encoding="utf-8"
+    )
+
+    assert _r12_paths(project) == ["lib/features/about/presentation/cubit"]
+
+
+def test_r12_still_reports_a_half_built_data_layer(project):
+    """Once a feature keeps data of its own, the whole trio is expected."""
+    base = project / "lib/features/tasks"
+    (base / "data/models").mkdir(parents=True)
+    (base / "presentation/cubit").mkdir(parents=True)
+    (base / "presentation/screens").mkdir(parents=True)
+
+    assert _r12_paths(project) == [
+        "lib/features/tasks/data/data_source",
+        "lib/features/tasks/data/repos",
+    ]
+
+
+def test_r12_hint_points_at_the_owning_feature(project):
+    base = project / "lib/features/tasks"
+    (base / "data/models").mkdir(parents=True)
+    (base / "presentation/cubit").mkdir(parents=True)
+    (base / "presentation/screens").mkdir(parents=True)
+
+    findings, _ = check_path(project / "lib", include_localization=False)
+    repos = next(f for f in findings if f.path.endswith("data/repos"))
+    assert "inject the owning feature's repo" in repos.hint
+
+
 def test_clean_file_produces_nothing(ctx):
     src = """
 import 'package:flutter/material.dart';

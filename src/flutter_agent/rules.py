@@ -98,6 +98,16 @@ _LANGKEY_CONST_RE = re.compile(
 _CONTROL_FLOW_RE = re.compile(r"\b(?:if|for|while|switch|try)\s*[({]")
 _FROM_JSON_RE = re.compile(r"\bfromJson\b")
 _TO_JSON_RE = re.compile(r"\btoJson\b")
+_CUBIT_REF_RE = re.compile(r"\b\w+(?:Cubit|Bloc)\b")
+
+# --- R12: what to do instead of scaffolding an empty folder ----------------
+_R12_HINTS = {
+    "data/data_source": "scaffold it, or leave the backend calls to the feature that owns this data",
+    "data/models": "scaffold it, or reuse the owning feature's models instead of a second copy",
+    "data/repos": "scaffold it, or inject the owning feature's repo",
+    "presentation/cubit": "scaffold it, or read the cubit that already owns this state",
+    "presentation/screens": "scaffold it - a feature with a presentation layer needs a screen",
+}
 
 
 @dataclass
@@ -507,6 +517,12 @@ def check_feature_structure(root: Path, feature: str) -> list[Finding]:
     `features/auth/` holding `login/`, `forgot_password/` and friends is a
     grouping folder, not a feature. Those are checked individually instead, so
     the parent is not reported for lacking layers it was never meant to have.
+
+    A presentation-only feature is confirmed rather than reported: persistence
+    belongs to the feature that owns the data, and screen features inject the
+    owning feature's repo. Scaffolding an empty data/ trio under every screen
+    to silence this rule duplicates the same queries per feature, which is the
+    violation the rule exists to prevent.
     """
     base = Path(root) / "lib" / "features" / feature
     if not base.is_dir():
@@ -526,11 +542,52 @@ def check_feature_structure(root: Path, feature: str) -> list[Finding]:
             f"{rel}/{required}",
             1,
             f"feature `{feature}` has no {required}/ folder",
-            "scaffold it, or confirm this feature genuinely needs no such layer",
+            _R12_HINTS[required],
         )
-        for required in FEATURE_REQUIRED_DIRS
+        for required in _required_dirs_for(base)
         if not (base / required).is_dir()
     ]
+
+
+def _required_dirs_for(base: Path) -> tuple[str, ...]:
+    """The subfolders this particular feature is expected to own.
+
+    An absent `data/` is a design choice; a half-built one is not. So the data
+    layers are only required once the feature has started keeping data of its
+    own, and the cubit folder is only required of a feature that does not
+    already read someone else's.
+    """
+    required = FEATURE_REQUIRED_DIRS
+    if (base / "data").is_dir():
+        return required
+
+    required = tuple(d for d in required if not d.startswith("data/"))
+    if _reads_a_foreign_cubit(base):
+        required = tuple(d for d in required if d != "presentation/cubit")
+    return required
+
+
+def _reads_a_foreign_cubit(base: Path) -> bool:
+    """True when the feature drives its UI from a cubit it does not declare.
+
+    Only asked of a feature with no `presentation/cubit/` of its own, so a
+    `Cubit`/`Bloc` named anywhere under it came from elsewhere -- the shared
+    package or a data-owning feature -- and its state management is delegated
+    rather than missing.
+    """
+    return any(
+        _CUBIT_REF_RE.search(text)
+        for text in (
+            _read_text(path) for path in sorted(base.rglob("*.dart")) if path.is_file()
+        )
+    )
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _is_leaf_feature(base: Path) -> bool:
