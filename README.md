@@ -52,6 +52,10 @@ Rendering goes through headless Edge/Chrome deliberately — it is the only engi
 on a stock Windows box that shapes Arabic correctly while leaving LTR code blocks
 intact.
 
+[`docs/clients.md`](docs/clients.md) is Markdown rather than a PDF: the config
+block for every other MCP client — Cursor, Codex CLI, VS Code, Gemini CLI,
+Windsurf/Devin, Cline — plus the CLI fallback for tools that speak no MCP at all.
+
 ---
 
 ## Install
@@ -80,6 +84,9 @@ Register the MCP server with Claude Code manually if the installer could not:
 ```powershell
 claude mcp add --scope user flutter-agent -- <venv>\Scripts\flutter-agent-server.exe
 ```
+
+Any other MCP client is the same executable behind a different config file —
+[`docs/clients.md`](docs/clients.md).
 
 ### Requirements
 
