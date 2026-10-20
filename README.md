@@ -96,29 +96,46 @@ The knowledge travels in git; the index does not, and does not need to.
 |---|---|---|
 | Lessons, rule cards, pattern cards | `knowledge/` in this repo | `git clone` |
 | Embeddings (`index.faiss`, `meta.sqlite3`) | `~/.flutter-agent/index/` | rebuilt by `flutter-agent index` |
-| Registered roots (`sources.json`) | `~/.flutter-agent/` | re-registered by hand; the paths differ per machine |
+| Registered roots (`sources.json`) | `~/.flutter-agent/` | re-registered by `setup.ps1`; the paths differ per machine |
 
 ```powershell
 git clone https://github.com/samohammad7567-tech/flutter_agent.git
 cd flutter_agent
-.\install.ps1                                        # -Cpu if that box has no NVIDIA GPU
-flutter-agent sources add D:\work\corereusablepackage  # shared package first
-flutter-agent sources add D:\work\your_app
-flutter-agent index                                  # re-embeds the corpus *and* knowledge/
-flutter-agent status
+.\setup.ps1 -Projects D:\work\corereusablepackage,D:\work\your_app
 ```
+
+`setup.ps1` is that whole sequence: it refuses to run outside a checkout, hands
+the environment to `install.ps1`, finds the CLI the install produced, registers
+each project with shared packages first, rebuilds the index, prints `status`, and
+says so if `~\.claude\CLAUDE.md` is missing. Re-running it is safe — registration
+is idempotent and indexing is incremental.
+
+| Flag | Effect |
+|---|---|
+| `-Scan D:\work [-Depth 3]` | discover projects by their `pubspec.yaml` instead of naming them; prompts before registering, `-Yes` skips the prompt |
+| `-DryRun` | print what would be registered, change nothing |
+| `-SkipInstall` | the environment already exists — register and index only |
+| `-SkipIndex` | register now, index later |
+| `-Cpu`, `-OwnVenv`, `-ReuseVenv`, `-SkipRegister` | forwarded to `install.ps1` |
+
+A scan is deliberately shallow — depth 2, and it warns past ten projects. Old
+copies and backup folders register exactly as readily as live work, and each one
+dilutes retrieval until `pattern` starts answering with a precedent you
+abandoned. Naming the projects is the better default.
 
 Four things that bite:
 
 * **Keep it a checkout, not a wheel.** `knowledge_home()` prefers the repo's own
   `knowledge/` directory and only falls back to `~/.flutter-agent/knowledge` when
   there is no checkout above the package. Install from a wheel and every new
-  lesson lands outside version control.
+  lesson lands outside version control — which is why `setup.ps1` stops unless it
+  finds `knowledge/lessons/` beside it.
 * **The first index downloads the embedding model** — ~90 MB for
   all-MiniLM-L6-v2, on top of whatever PyTorch wheel the installer pulls.
-* **`install.ps1` is Windows-only.** The package itself is portable:
-  `pip install -e ".[dev]"`, then
-  `claude mcp add --scope user flutter-agent -- <venv>/bin/flutter-agent-server`.
+* **Both scripts are Windows-only.** The package itself is portable — on macOS
+  or Linux the same steps are `pip install -e ".[dev]"`,
+  `claude mcp add --scope user flutter-agent -- <venv>/bin/flutter-agent-server`,
+  then `flutter-agent sources add <project>` per project and `flutter-agent index`.
 * **Two machines both recording lessons will collide in `lessons.jsonl`.** It is
   append-only with content-hash ids, so a conflict resolves to the union of both
   sides' lines — but pull before a session and push after it.
