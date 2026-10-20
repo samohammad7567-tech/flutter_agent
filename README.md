@@ -88,6 +88,44 @@ claude mcp add --scope user flutter-agent -- <venv>\Scripts\flutter-agent-server
   `flutter-agent doctor` tells you which is in use
 * Flutter on PATH only if you want `flutter analyze` to verify generated code
 
+### A second machine
+
+The knowledge travels in git; the index does not, and does not need to.
+
+| What | Where it lives | How it gets there |
+|---|---|---|
+| Lessons, rule cards, pattern cards | `knowledge/` in this repo | `git clone` |
+| Embeddings (`index.faiss`, `meta.sqlite3`) | `~/.flutter-agent/index/` | rebuilt by `flutter-agent index` |
+| Registered roots (`sources.json`) | `~/.flutter-agent/` | re-registered by hand; the paths differ per machine |
+
+```powershell
+git clone https://github.com/samohammad7567-tech/flutter_agent.git
+cd flutter_agent
+.\install.ps1                                        # -Cpu if that box has no NVIDIA GPU
+flutter-agent sources add D:\work\corereusablepackage  # shared package first
+flutter-agent sources add D:\work\your_app
+flutter-agent index                                  # re-embeds the corpus *and* knowledge/
+flutter-agent status
+```
+
+Four things that bite:
+
+* **Keep it a checkout, not a wheel.** `knowledge_home()` prefers the repo's own
+  `knowledge/` directory and only falls back to `~/.flutter-agent/knowledge` when
+  there is no checkout above the package. Install from a wheel and every new
+  lesson lands outside version control.
+* **The first index downloads the embedding model** — ~90 MB for
+  all-MiniLM-L6-v2, on top of whatever PyTorch wheel the installer pulls.
+* **`install.ps1` is Windows-only.** The package itself is portable:
+  `pip install -e ".[dev]"`, then
+  `claude mcp add --scope user flutter-agent -- <venv>/bin/flutter-agent-server`.
+* **Two machines both recording lessons will collide in `lessons.jsonl`.** It is
+  append-only with content-hash ids, so a conflict resolves to the union of both
+  sides' lines — but pull before a session and push after it.
+
+One thing git does not carry: `~/.claude/CLAUDE.md`. This agent supplies
+precedent; that file supplies the house rules. Copy it across as well.
+
 ---
 
 ## Daily use
