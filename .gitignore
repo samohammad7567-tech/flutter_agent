@@ -28,3 +28,4 @@ tests/fixtures/quick_tasks/windows/
 tests/fixtures/quick_tasks/pubspec.lock
 tests/fixtures/quick_tasks/.metadata
 tests/fixtures/quick_tasks/.flutter-plugins-dependencies
+model/runs/
